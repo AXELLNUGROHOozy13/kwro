@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    env:
+      DATABASE_URL: postgresql://user:pass@localhost:5432/ci
+      JWT_ACCESS_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      CODE_HASH_PEPPER: ci-only-pepper-ci-only-pepper-ci-only-pepper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npx prisma validate
+      - run: npx prisma generate
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  developer-console:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: developer-console } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build

@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────── Enums ─────────
+enum AdminStatus { ACTIVE SUSPENDED }
+enum StudentStatus { ACTIVE DISABLED }
+enum SubjectType { DEVELOPER ADMIN STUDENT }
+enum QuestionType { MULTIPLE_CHOICE MULTIPLE_SELECT TRUE_FALSE SHORT_ANSWER ESSAY }
+enum ExamStatus { DRAFT SCHEDULED ACTIVE ENDED SUSPENDED }
+enum ResultVisibility { HIDDEN SCORE_ONLY SCORE_AND_KKM FULL_DETAIL }
+enum SessionStatus { NOT_STARTED IN_PROGRESS STOPPED SUBMITTED FORCE_SUBMITTED }
+enum ViolationType { LEFT_APP FOCUS_LOST MULTI_WINDOW OVERLAY_DETECTED PINNING_EXITED SCREENSHOT_ATTEMPT SUSPICIOUS_SESSION }
+enum ViolationStatus { CONFIRMED DISMISSED }
+
+// ───────── Identity ─────────
+model Developer {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  mfaSecret    String? // reserved for optional MFA (not implemented yet)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  activationCodes ActivationCode[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AdminAuditLog[]
+
+  @@map("developers")
+}
+
+model ActivationCode {
+  id          String    @id @default(uuid())
+  codeHash    String    @unique // HMAC-SHA256 of the normalized code; plaintext is never stored
+  codeHint    String // last 4 characters, for display only
+  label       String?
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  createdBy      Developer       @relation(fields: [createdById], references: [id])
+  administrators Administrator[]
+
+  @@index([createdById])
+  @@map("activation_codes")
+}
+
+model Administrator {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  name             String
+  schoolName       String
+  passwordHash     String
+  status           AdminStatus @default(ACTIVE)
+  activationCodeId String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  activationCode ActivationCode? @relation(fields: [activationCodeId], references: [id])
+  classes        Class[]
+  students       Student[]
+  exams          Exam[]
+  notifications  Notification[]
+  settings       SystemSetting[]
+  refreshTokens  RefreshToken[]
+  auditLogs      AdminAuditLog[]
+
+  @@index([activationCodeId])
+  @@map("administrators")
+}
+
+model Class {
+  id        String   @id @default(uuid())
+  adminId   String
+  name      String
+  createdAt DateTime @default(now())
+
+  admin       Administrator    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  students    Student[]
+  assignments ExamAssignment[]
+
+  @@unique([adminId, name])
+  @@map("classes")
+}
+
+model Student {
+  id                 String        @id @default(uuid())
+  adminId            String
+  classId            String?
+  name               String
+  loginCode          String        @unique // 7 digits, globally unique so students log in without picking a school
+  passwordHash       String
+  mustChangePassword Boolean       @default(true)
+  status             StudentStatus @default(ACTIVE)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  admin         Administrator  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  class         Class?         @relation(fields: [classId], references: [id], onDelete: SetNull)
+  sessions      ExamSession[]
+  notifications Notification[]
+  refreshTokens RefreshToken[]
+
+  @@index([adminId])
+  @@index([classId])
+  @@map("students")
+}
+
+model RefreshToken {
+  id           String      @id @default(uuid())
+  tokenHash    String      @unique // SHA-256 of the opaque token
+  familyId     String // all rotations of one login share a family (reuse detection)
+  subjectType  SubjectType
+  developerId  String?
+  adminId      String?
+  studentId    String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime    @default(now())
+
+  developer Developer?     @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  admin     Administrator? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  student   Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([developerId])
+  @@index([adminId])
+  @@index([studentId])
+  @@map("refresh_tokens")
+}
+
+// ───────── Exams ─────────
+model Exam {
+  id                    String           @id @default(uuid())
+  adminId               String
+  title                 String
+  description           String?
+  durationMinutes       Int
+  startsAt              DateTime?
+  endsAt                DateTime?
+  kkm                   Float?
+  shuffleQuestions      Boolean          @default(true)
+  shuffleOptions        Boolean          @default(true)
+  resultVisibility      ResultVisibility @default(HIDDEN)
+  offlineMode           Boolean          @default(false)
+  scoreAdjustmentFactor Float            @default(1)
+  scoreMin              Float            @default(0)
+  scoreMax              Float            @default(100)
+  status                ExamStatus       @default(DRAFT)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+
+  admin       Administrator    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  assignments ExamAssignment[]
+  sessions    ExamSession[]
+
+  @@index([adminId, status])
+  @@map("exams")
+}
+
+model Question {
+  id              String       @id @default(uuid())
+  examId          String
+  type            QuestionType
+  text            String
+  imageUrl        String?
+  weight          Float        @default(1)
+  explanation     String?
+  category        String?
+  position        Int
+  acceptedAnswers String[] // SHORT_ANSWER: accepted normalized answers
+  createdAt       DateTime     @default(now())
+
+  exam    Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  options QuestionOption[]
+  answers StudentAnswer[]
+
+  @@index([examId, position])
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String  @id @default(uuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  position   Int
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("question_options")
+}
+
+model ExamAssignment {
+  id        String   @id @default(uuid())
+  examId    String
+  classId   String
+  createdAt DateTime @default(now())
+
+  exam  Exam  @relation(fields: [examId], references: [id], onDelete: Cascade)
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, classId])
+  @@map("exam_assignments")
+}
+
+model ExamSession {
+  id           String        @id @default(uuid())
+  examId       String
+  studentId    String
+  status       SessionStatus @default(NOT_STARTED)
+  seed         String // per-student randomization seed, fixed for the whole session
+  startedAt    DateTime?
+  deadlineAt   DateTime? // server-authoritative end time
+  finishedAt   DateTime?
+  warningCount Int           @default(0)
+  penaltyUntil DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  exam       Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student    Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers    StudentAnswer[]
+  result     ExamResult?
+  violations ViolationLog[]
+
+  @@unique([examId, studentId])
+  @@index([studentId])
+  @@map("exam_sessions")
+}
+
+// Append-only: every change is a new row, so answer history is preserved.
+model StudentAnswer {
+  id            String   @id @default(uuid())
+  sessionId     String
+  questionId    String
+  answer        Json
+  clientEventId String   @unique // idempotency key for offline retries
+  answeredAt    DateTime // client timestamp
+  receivedAt    DateTime @default(now())
+
+  session  ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, questionId])
+  @@map("student_answers")
+}
+
+model ExamResult {
+  id              String   @id @default(uuid())
+  sessionId       String   @unique
+  rawScore        Float
+  finalScore      Float
+  correctCount    Int
+  incorrectCount  Int
+  unansweredCount Int
+  passed          Boolean?
+  adjustedNote    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("exam_results")
+}
+
+model ViolationLog {
+  id             String          @id @default(uuid())
+  sessionId      String
+  type           ViolationType
+  status         ViolationStatus @default(CONFIRMED)
+  occurredAt     DateTime
+  durationMs     Int?
+  clientEventId  String          @unique // dedupe repeated uploads
+  penaltyMinutes Int             @default(0)
+  note           String?
+  createdAt      DateTime        @default(now())
+
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("violation_logs")
+}
+
+// ───────── Operations ─────────
+model AdminAuditLog {
+  id          String      @id @default(uuid())
+  actorType   SubjectType
+  developerId String?
+  adminId     String?
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  ip          String?
+  createdAt   DateTime    @default(now())
+
+  developer Developer?     @relation(fields: [developerId], references: [id], onDelete: SetNull)
+  admin     Administrator? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([developerId])
+  @@index([adminId])
+  @@map("admin_audit_logs")
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  adminId   String?
+  studentId String?
+  type      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  admin   Administrator? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  student Student?       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([studentId])
+  @@map("notifications")
+}
+
+model SystemSetting {
+  id      String  @id @default(uuid())
+  adminId String? // null = global default
+  key     String
+  value   Json
+
+  admin Administrator? @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@unique([adminId, key])
+  @@map("system_settings")
+}
