@@ -58,3 +58,7 @@ cd .. && pm2 start ecosystem.config.cjs && pm2 save
 ```
 Check the API with `curl http://127.0.0.1:3000/health`; the console listens on port 3001. Put Nginx/Caddy (or your platform's HTTPS) in front, then set `COOKIE_SECURE=true` in `backend/.env` and `pm2 restart kawrexam-api`.
 `.env` files are ignored by git: create them on the server.
+
+
+## Admin Dashboard (Phase 2)
+Lihat `admin-dashboard/README.md` (deploy ke Vercel dengan `BACKEND_URL`).
