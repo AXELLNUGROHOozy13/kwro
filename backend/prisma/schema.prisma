@@ -8,15 +8,59 @@ datasource db {
 }
 
 // ───────── Enums ─────────
-enum AdminStatus { ACTIVE SUSPENDED }
-enum StudentStatus { ACTIVE DISABLED }
-enum SubjectType { DEVELOPER ADMIN STUDENT }
-enum QuestionType { MULTIPLE_CHOICE MULTIPLE_SELECT TRUE_FALSE SHORT_ANSWER ESSAY }
-enum ExamStatus { DRAFT SCHEDULED ACTIVE ENDED SUSPENDED }
-enum ResultVisibility { HIDDEN SCORE_ONLY SCORE_AND_KKM FULL_DETAIL }
-enum SessionStatus { NOT_STARTED IN_PROGRESS STOPPED SUBMITTED FORCE_SUBMITTED }
-enum ViolationType { LEFT_APP FOCUS_LOST MULTI_WINDOW OVERLAY_DETECTED PINNING_EXITED SCREENSHOT_ATTEMPT SUSPICIOUS_SESSION }
-enum ViolationStatus { CONFIRMED DISMISSED }
+enum AdminStatus {
+  ACTIVE
+  SUSPENDED
+}
+enum StudentStatus {
+  ACTIVE
+  DISABLED
+}
+enum SubjectType {
+  DEVELOPER
+  ADMIN
+  STUDENT
+}
+enum QuestionType {
+  MULTIPLE_CHOICE
+  MULTIPLE_SELECT
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  ENDED
+  SUSPENDED
+}
+enum ResultVisibility {
+  HIDDEN
+  SCORE_ONLY
+  SCORE_AND_KKM
+  FULL_DETAIL
+}
+enum SessionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  STOPPED
+  SUBMITTED
+  FORCE_SUBMITTED
+}
+enum ViolationType {
+  LEFT_APP
+  FOCUS_LOST
+  MULTI_WINDOW
+  OVERLAY_DETECTED
+  PINNING_EXITED
+  SCREENSHOT_ATTEMPT
+  SUSPICIOUS_SESSION
+}
+enum ViolationStatus {
+  CONFIRMED
+  DISMISSED
+}
 
 // ───────── Identity ─────────
 model Developer {
