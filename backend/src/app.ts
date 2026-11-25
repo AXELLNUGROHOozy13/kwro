@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from './middleware/error';
 import { adminRouter } from './modules/admin/admin.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { developerRouter } from './modules/developer/developer.routes';
+import { studentRouter } from './modules/student/student.routes';
 
 export function createApp() {
   const app = express();
@@ -31,6 +32,7 @@ export function createApp() {
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/developer', developerRouter);
   app.use('/api/v1/admin', adminRouter);
+  app.use('/api/v1/student', studentRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

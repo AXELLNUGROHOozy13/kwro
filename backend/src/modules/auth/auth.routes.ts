@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { ah, unauthorized } from '../../lib/errors';
-import { loginAdmin, loginDeveloper, registerAdmin } from './auth.service';
+import { loginAdmin, loginDeveloper, loginStudent, registerAdmin } from './auth.service';
 import {
   REFRESH_COOKIE,
   clearRefreshCookie,
@@ -89,5 +89,46 @@ authRouter.post(
     if (raw) await revokeRefreshToken(raw);
     clearRefreshCookie(res);
     res.status(204).end();
+  }),
+);
+
+// ───────── Student app (mobile): tokens travel in the JSON body, not in cookies ─────────
+// A whole class often shares one school IP, so limit per login code (failed attempts only) plus a generous per-IP cap.
+const studentCodeLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `code:${String(req.body?.loginCode ?? 'none').slice(0, 20)}`,
+  message: { error: { code: 'RATE_LIMITED', message: 'Terlalu banyak percobaan. Coba lagi beberapa menit lagi.' } },
+});
+const studentIpLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 600,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Terlalu banyak percobaan. Coba lagi beberapa menit lagi.' } },
+});
+
+authRouter.post(
+  '/student/login',
+  studentIpLimiter,
+  studentCodeLimiter,
+  ah(async (req, res) => {
+    const body = z.object({ loginCode: z.string().regex(/^\d{7}$/, 'Kode login terdiri dari 7 angka.'), password: z.string().min(1).max(256) }).parse(req.body);
+    const { session, student } = await loginStudent(body.loginCode, body.password, requestMeta(req));
+    res.json({ accessToken: session.accessToken, refreshToken: session.refreshToken, expiresIn: env.ACCESS_TOKEN_TTL_SECONDS, student });
+  }),
+);
+
+authRouter.post(
+  '/student/refresh',
+  studentIpLimiter,
+  ah(async (req, res) => {
+    const raw = z.object({ refreshToken: z.string().min(20).max(200) }).parse(req.body).refreshToken;
+    const s = await rotateRefreshToken(raw, requestMeta(req));
+    if (s.subject.type !== 'STUDENT') throw unauthorized('INVALID_REFRESH_TOKEN', 'Sesi berakhir. Masuk lagi.');
+    res.json({ accessToken: s.accessToken, refreshToken: s.refreshToken, expiresIn: env.ACCESS_TOKEN_TTL_SECONDS });
   }),
 );

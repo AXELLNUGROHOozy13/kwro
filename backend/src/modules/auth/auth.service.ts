@@ -81,3 +81,19 @@ export async function registerAdmin(input: RegisterAdminInput, meta: SessionMeta
   const session = await issueSession({ type: 'ADMIN', id: admin.id }, meta);
   return { admin, session };
 }
+
+export async function loginStudent(loginCode: string, password: string, meta: SessionMeta) {
+  const invalid = () => unauthorized('INVALID_CREDENTIALS', 'Kode login atau kata sandi salah.');
+  const st = await prisma.student.findUnique({ where: { loginCode }, include: { class: { select: { name: true } } } });
+  if (!st) {
+    await burnPasswordCheck(password);
+    throw invalid();
+  }
+  if (!(await verifyPassword(st.passwordHash, password))) throw invalid();
+  if (st.status !== 'ACTIVE') throw unauthorized('ACCOUNT_DISABLED', 'Akun dinonaktifkan. Hubungi pengawas.');
+  const session = await issueSession({ type: 'STUDENT', id: st.id }, meta);
+  return {
+    session,
+    student: { id: st.id, name: st.name, className: st.class?.name ?? null, mustChangePassword: st.mustChangePassword },
+  };
+}
