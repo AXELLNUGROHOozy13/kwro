@@ -1,9 +1,13 @@
+import { randomInt } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { audit } from '../../lib/audit';
 import { prisma } from '../../lib/db';
 import { ah, badRequest, notFound } from '../../lib/errors';
+import { finalize } from '../student/student.routes';
 import { adminId, idParam, ownExam } from './helpers';
+
+const newPin = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
 
 export const examsRouter = Router();
 
@@ -58,7 +62,7 @@ examsRouter.post(
     const input = examFields.parse(req.body);
     checkRanges(input);
     const exam = await prisma.exam.create({
-      data: { ...input, adminId: adminId(req), startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) },
+      data: { ...input, supervisorPin: newPin(), adminId: adminId(req), startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) },
     });
     await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'exam.create', targetType: 'Exam', targetId: exam.id, ip: req.ip });
     res.status(201).json(exam);
@@ -69,7 +73,8 @@ examsRouter.get(
   '/:id',
   ah(async (req, res) => {
     const { id } = idParam.parse(req.params);
-    await ownExam(id, adminId(req));
+    const own = await ownExam(id, adminId(req));
+    if (!own.supervisorPin) await prisma.exam.update({ where: { id }, data: { supervisorPin: newPin() } });
     const exam = await prisma.exam.findUniqueOrThrow({
       where: { id },
       include: {
@@ -307,6 +312,32 @@ examsRouter.delete(
     await assertQuestionsEditable(id);
     const result = await prisma.question.deleteMany({ where: { id: questionId, examId: id } });
     if (result.count === 0) throw notFound('Soal tidak ditemukan.');
+    res.status(204).end();
+  }),
+);
+
+// ───────── Supervisor PIN, individual force-submit ─────────
+examsRouter.post(
+  '/:id/regenerate-pin',
+  ah(async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    await ownExam(id, adminId(req));
+    const exam = await prisma.exam.update({ where: { id }, data: { supervisorPin: newPin() } });
+    await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'exam.pin.regenerate', targetType: 'Exam', targetId: id, ip: req.ip });
+    res.json({ supervisorPin: exam.supervisorPin });
+  }),
+);
+
+examsRouter.post(
+  '/:id/students/:studentId/force-submit',
+  ah(async (req, res) => {
+    const { id, studentId } = z.object({ id: z.string().uuid(), studentId: z.string().uuid() }).parse(req.params);
+    await ownExam(id, adminId(req));
+    const session = await prisma.examSession.findFirst({ where: { examId: id, studentId, student: { adminId: adminId(req) } } });
+    if (!session) throw notFound('Siswa ini belum memulai ujian.');
+    if (!['IN_PROGRESS', 'STOPPED'].includes(session.status)) throw badRequest('NOT_ACTIVE', 'Ujian siswa ini sudah selesai atau belum dimulai.');
+    await finalize(session.id, 'FORCE_SUBMITTED');
+    await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'session.force_submit', targetType: 'ExamSession', targetId: session.id, ip: req.ip });
     res.status(204).end();
   }),
 );

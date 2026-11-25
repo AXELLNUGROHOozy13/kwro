@@ -15,7 +15,7 @@ interface Question { id: string; type: string; text: string; weight: number; exp
 interface Exam {
   id: string; title: string; description: string | null; durationMinutes: number; startsAt: string | null; endsAt: string | null;
   kkm: number | null; shuffleQuestions: boolean; shuffleOptions: boolean; resultVisibility: string; offlineMode: boolean;
-  scoreAdjustmentFactor: number; scoreMin: number; scoreMax: number; status: string;
+  scoreAdjustmentFactor: number; scoreMin: number; scoreMax: number; status: string; supervisorPin: string | null;
   questions: Question[]; assignments: { classId: string }[]; _count: { sessions: number };
 }
 interface ClassRow { id: string; name: string; _count: { students: number } }
@@ -233,8 +233,14 @@ function SettingsTab({ exam, reload, onSaved, onError }: { exam: Exam; reload: (
     resultVisibility: exam.resultVisibility, scoreAdjustmentFactor: exam.scoreAdjustmentFactor, scoreMin: exam.scoreMin, scoreMax: exam.scoreMax,
   });
   const [busy, setBusy] = useState(false);
+  const [pin, setPin] = useState<string | null>(null);
   const ended = exam.status === 'ENDED';
   const locked = exam._count.sessions > 0;
+
+  async function regenPin() {
+    try { setPin((await api<{ supervisorPin: string }>(`/exams/${exam.id}/regenerate-pin`, { method: 'POST' })).supervisorPin); }
+    catch (err) { onError(err); }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -259,6 +265,14 @@ function SettingsTab({ exam, reload, onSaved, onError }: { exam: Exam; reload: (
 
   return (
     <form onSubmit={submit} className="glass p-5 grid gap-5 max-w-2xl">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="label">PIN pengawas</p>
+          <p className="num text-2xl font-bold tracking-widest">{pin ?? exam.supervisorPin ?? '–'}</p>
+          <p className="muted text-sm">Siswa mengetik PIN ini untuk menyelesaikan ujian atau membuka layar terkunci.</p>
+        </div>
+        <button type="button" className="btn" disabled={ended} onClick={regenPin}>Buat PIN baru</button>
+      </div>
       <fieldset disabled={ended} className="grid gap-5">
         <div>
           <label className="label" htmlFor="t">Judul</label>
@@ -354,7 +368,14 @@ function ClassesTab({ exam, reload, onError }: { exam: Exam; reload: () => void;
 // ───────── Results ─────────
 function ResultsTab({ exam, onError }: { exam: Exam; onError: (e: unknown) => void }) {
   const [rows, setRows] = useState<Participant[] | null>(null);
-  useEffect(() => { api<{ data: Participant[] }>(`/exams/${exam.id}/participants`).then((r) => setRows(r.data)).catch(onError); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [exam.id]);
+  const load = useCallback(() => { api<{ data: Participant[] }>(`/exams/${exam.id}/participants`).then((r) => setRows(r.data)).catch(onError); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [exam.id]);
+  useEffect(load, [load]);
+
+  async function forceSubmit(r: Participant) {
+    if (!window.confirm(`Kumpulkan ujian ${r.name} sekarang? Jawaban yang sudah masuk akan dinilai dan tidak bisa diubah.`)) return;
+    try { await api(`/exams/${exam.id}/students/${r.studentId}/force-submit`, { method: 'POST' }); load(); }
+    catch (err) { onError(err); }
+  }
 
   if (rows === null) return <p className="muted">Memuat…</p>;
   if (rows.length === 0) return <p className="glass p-5 muted">Belum ada peserta. Pilih kelas di tab Kelas dan pastikan kelas itu berisi siswa.</p>;
@@ -374,7 +395,7 @@ function ResultsTab({ exam, onError }: { exam: Exam; onError: (e: unknown) => vo
       </div>
       <section className="glass p-2 scroll-x">
         <table className="table">
-          <thead><tr><th>Nama</th><th>Kelas</th><th>Status</th><th>Nilai</th><th>Peringatan</th><th>Selesai</th></tr></thead>
+          <thead><tr><th>Nama</th><th>Kelas</th><th>Status</th><th>Nilai</th><th>Peringatan</th><th>Selesai</th><th></th></tr></thead>
           <tbody>
             {rows.map((r) => {
               const [cls, text] = SESSION_STATUS[r.status] ?? ['badge-muted', r.status];
@@ -386,6 +407,7 @@ function ResultsTab({ exam, onError }: { exam: Exam; onError: (e: unknown) => vo
                   <td className="num">{r.finalScore === null ? '–' : r.finalScore.toFixed(1)}{r.passed !== null && <span className={`badge ml-2 ${r.passed ? 'badge-ok' : 'badge-bad'}`}>{r.passed ? 'Lulus' : 'Belum lulus'}</span>}</td>
                   <td className="num">{r.warningCount}</td>
                   <td className="muted">{fmtDate(r.finishedAt)}</td>
+                  <td>{(r.status === 'IN_PROGRESS' || r.status === 'STOPPED') && <button className="btn" onClick={() => forceSubmit(r)}>Kumpulkan</button>}</td>
                 </tr>
               );
             })}

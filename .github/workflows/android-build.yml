@@ -1,0 +1,42 @@
+name: Android build
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ['v*']
+    paths: ['android-app/**', '.github/workflows/android-build.yml']
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: android-app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      # No gradle wrapper is committed, so this action provides Gradle itself.
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: 8.10.2 }
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Build release APK (signed when keystore secrets exist)
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          fi
+          gradle assembleRelease --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kawrexam-apk
+          path: |
+            android-app/app/build/outputs/apk/debug/*.apk
+            android-app/app/build/outputs/apk/release/*.apk

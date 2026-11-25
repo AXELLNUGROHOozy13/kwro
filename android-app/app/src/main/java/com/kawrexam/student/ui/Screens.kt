@@ -1,0 +1,398 @@
+package com.kawrexam.student.ui
+
+import android.os.BatteryManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.kawrexam.student.MainViewModel
+import com.kawrexam.student.Screen
+import com.kawrexam.student.data.AnswerState
+import com.kawrexam.student.data.ExamItem
+import com.kawrexam.student.data.QuestionDto
+import com.kawrexam.student.guard.DndManager
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Date
+import java.util.Locale
+
+private val dateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale("id", "ID")).withZone(ZoneId.systemDefault())
+private fun fmtIso(iso: String?): String = iso?.let { runCatching { dateFmt.format(Instant.parse(it)) }.getOrNull() } ?: "-"
+private fun mmss(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%02d:%02d".format(s / 60, s % 60) }
+private fun isAnswered(a: AnswerState?): Boolean = a != null && (a.optionIds.isNotEmpty() || !a.text.isNullOrBlank())
+
+@Composable
+fun AppRoot(vm: MainViewModel, dnd: DndManager) {
+    GlassBackground {
+        when (val s = vm.screen) {
+            Screen.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+            Screen.Login -> LoginScreen(vm)
+            Screen.ChangePassword -> ChangePasswordScreen(vm)
+            Screen.Exams -> ExamsScreen(vm)
+            is Screen.Checklist -> ChecklistScreen(vm, s.exam, dnd)
+            Screen.InExam -> ExamScreen(vm)
+            is Screen.Result -> ResultScreen(vm, s)
+        }
+    }
+}
+
+@Composable
+private fun ErrorText(msg: String?) {
+    if (msg != null) Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+}
+
+@Composable
+private fun Muted(text: String, modifier: Modifier = Modifier) =
+    Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, modifier = modifier)
+
+// ───────── Login ─────────
+@Composable
+fun LoginScreen(vm: MainViewModel) {
+    var code by remember { mutableStateOf("") }
+    var pw by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("KAWREXAM", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Muted("Masuk dengan kode siswa dari pengawas.")
+        Spacer(Modifier.height(20.dp))
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = code, onValueChange = { if (it.length <= 7 && it.all(Char::isDigit)) code = it },
+                    label = { Text("Kode siswa (7 angka)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = pw, onValueChange = { pw = it }, label = { Text("Kata sandi") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(),
+                )
+                ErrorText(vm.error)
+                Button(onClick = { vm.login(code, pw) }, enabled = !vm.busy && code.length == 7 && pw.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                    Text(if (vm.busy) "Memproses…" else "Masuk")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChangePasswordScreen(vm: MainViewModel) {
+    var current by remember { mutableStateOf("") }
+    var next by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    val mismatch = again.isNotEmpty() && again != next
+    Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
+        Text("Buat kata sandi baru", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Muted("Kata sandi awalmu sama dengan kode login. Ganti dulu sebelum mulai ujian.")
+        Spacer(Modifier.height(16.dp))
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val kb = KeyboardOptions(keyboardType = KeyboardType.Password)
+                OutlinedTextField(current, { current = it }, label = { Text("Kata sandi lama") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = kb, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(next, { next = it }, label = { Text("Kata sandi baru (min. 8 karakter)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = kb, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(again, { again = it }, label = { Text("Ulangi kata sandi baru") }, singleLine = true, isError = mismatch, visualTransformation = PasswordVisualTransformation(), keyboardOptions = kb, modifier = Modifier.fillMaxWidth())
+                if (mismatch) ErrorText("Kata sandi tidak sama.")
+                ErrorText(vm.error)
+                Button(onClick = { vm.changePassword(current, next) }, enabled = !vm.busy && current.isNotEmpty() && next.length >= 8 && next == again, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (vm.busy) "Memproses…" else "Simpan")
+                }
+            }
+        }
+    }
+}
+
+// ───────── Exam list ─────────
+@Composable
+fun ExamsScreen(vm: MainViewModel) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Halo, ${vm.student?.name ?: ""}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Muted(vm.student?.className?.let { "Kelas $it" } ?: "Belum ada kelas")
+            }
+            TextButton(onClick = { vm.refreshExams() }, enabled = !vm.busy) { Text("Muat ulang") }
+            TextButton(onClick = { vm.logout() }) { Text("Keluar") }
+        }
+        Spacer(Modifier.height(8.dp))
+        ErrorText(vm.error)
+        if (vm.exams.isEmpty() && !vm.busy) {
+            Muted("Belum ada ujian untuk kelasmu. Tarik data lagi dengan Muat ulang saat pengawas sudah membuka ujian.")
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(vm.exams, key = { it.id }) { e ->
+                GlassCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(e.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Muted("Durasi ${e.durationMinutes} menit")
+                        Muted("Mulai: ${fmtIso(e.startsAt)}")
+                        if (e.endsAt != null) Muted("Berakhir: ${fmtIso(e.endsAt)}")
+                        if (!e.canStart && e.reason != null) Text(e.reason, color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(6.dp))
+                        Button(onClick = { vm.openChecklist(e) }, enabled = e.canStart && !vm.busy) {
+                            Text(if (e.sessionStatus == "IN_PROGRESS") "Lanjutkan ujian" else "Mulai ujian")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ───────── Pre-exam checklist ─────────
+@Composable
+fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
+    val tick = vm.resumeTick // re-check permissions when the student returns from Settings
+    val dndOk = remember(tick) { dnd.hasAccess() }
+    val batteryOk = remember(tick) { dnd.ignoresBatteryOptimization() }
+    var consent by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(exam.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Muted("Siapkan HP-mu sebelum mulai. Setelah ujian dimulai, pengaturan tidak bisa dibuka.")
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (dndOk) "✔ Akses Jangan Ganggu aktif" else "✖ Akses Jangan Ganggu belum diberikan", fontWeight = FontWeight.SemiBold)
+                Muted("Dipakai untuk mematikan notifikasi dan panggilan selama ujian. Pengaturan lamamu dikembalikan setelah selesai.")
+                if (!dndOk) OutlinedButton(onClick = { dnd.openAccessSettings() }) { Text("Buka pengaturan") }
+            }
+        }
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (batteryOk) "✔ Hemat baterai tidak membatasi aplikasi" else "• Disarankan: izinkan aplikasi tanpa pembatasan baterai", fontWeight = FontWeight.SemiBold)
+                if (!batteryOk) OutlinedButton(onClick = { dnd.openBatterySettings() }) { Text("Buka pengaturan") }
+            }
+        }
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Yang terjadi selama ujian", fontWeight = FontWeight.SemiBold)
+                Muted("• Layar dikunci (pin) dan tangkapan layar diblokir.\n• Notifikasi dimatikan, hanya alarm yang berbunyi.\n• Aplikasi mencatat kalau kamu keluar dari ujian. Tidak ada data lain yang dipantau.\n• Keluar dari ujian = pelanggaran: layar terkunci 5, 10, lalu 20 menit. Waktu ujian tetap berjalan.\n• Disarankan: nyalakan mode pesawat dengan Wi-Fi tetap menyala.")
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { consent = !consent }) {
+                    Checkbox(checked = consent, onCheckedChange = { consent = it })
+                    Text("Saya mengerti dan setuju.")
+                }
+            }
+        }
+        ErrorText(vm.error)
+        Button(onClick = { vm.startExam(exam) }, enabled = dndOk && consent && !vm.busy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (vm.busy) "Memuat soal…" else "Mulai ujian")
+        }
+        OutlinedButton(onClick = { vm.backToExams() }, modifier = Modifier.fillMaxWidth()) { Text("Batal") }
+    }
+}
+
+// ───────── Exam ─────────
+@Composable
+fun ExamScreen(vm: MainViewModel) {
+    val s = vm.session ?: return
+    val n = s.questions.size
+    val q = s.questions.getOrNull(vm.index) ?: return
+    BackHandler(enabled = true) { } // the back button never leaves an exam
+    val ctx = LocalContext.current
+    val left = (vm.deadlineMs - vm.nowMs).coerceAtLeast(0)
+    val answered = s.questions.count { isAnswered(vm.answers[it.id]) }
+    val battery = remember(vm.nowMs / 30_000) { ctx.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1 }
+    val clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+    var confirm by remember { mutableStateOf(false) }
+    var finishPin by remember { mutableStateOf("") }
+    var unlockPin by remember { mutableStateOf("") }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(s.title, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Muted(vm.student?.name ?: "")
+                }
+                Muted("$clock  •  ${if (battery >= 0) "$battery%" else "-"}  •  ${if (vm.online) "Online" else "Offline"}")
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Soal ${vm.index + 1} dari $n", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Text(mmss(left), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge,
+                    color = if (left < 300_000) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            }
+            LinearProgressIndicator(progress = { if (n == 0) 0f else answered / n.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
+            GlassCard(Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    QuestionBody(vm, q)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                itemsIndexed(s.questions) { i, qq ->
+                    val done = isAnswered(vm.answers[qq.id])
+                    val bg = when {
+                        i == vm.index -> MaterialTheme.colorScheme.primary
+                        done -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(bg).clickable { vm.goTo(i) }, contentAlignment = Alignment.Center) {
+                        Text("${i + 1}", color = if (i == vm.index) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.goTo(vm.index - 1) }, enabled = vm.index > 0, modifier = Modifier.weight(1f)) { Text("Sebelumnya") }
+                OutlinedButton(onClick = { vm.goTo(vm.index + 1) }, enabled = vm.index < n - 1, modifier = Modifier.weight(1f)) { Text("Selanjutnya") }
+                Button(onClick = { confirm = true }, modifier = Modifier.weight(1f)) { Text("Selesai") }
+            }
+        }
+
+        if (vm.penaltyLeftMs() > 0) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.94f)).clickable(enabled = true) { }, contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                    Text("Layar terkunci", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(mmss(vm.penaltyLeftMs()), color = Color(0xFF38BDF8), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
+                    Text("Pelanggaran ke-${vm.warningCount}. Waktu ujian tetap berjalan.", color = Color.White, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(16.dp))
+                    Text("Atau minta PIN ke pengawas untuk membuka kunci:", color = Color.White, textAlign = TextAlign.Center)
+                    OutlinedTextField(
+                        unlockPin, { unlockPin = it.filter(Char::isDigit).take(12) }, label = { Text("PIN pengawas") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { vm.unlock(unlockPin); unlockPin = "" }, enabled = unlockPin.isNotEmpty() && !vm.unlocking) { Text("Buka kunci") }
+                }
+            }
+        }
+        if (vm.finishing) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).clickable(enabled = true) { }, contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("Mengirim jawaban…", color = Color.White)
+                }
+            }
+        }
+    }
+
+    vm.warning?.let { w ->
+        AlertDialog(onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
+            confirmButton = { TextButton(onClick = { vm.warning = null }) { Text("Mengerti") } })
+    }
+    vm.error?.let { e ->
+        AlertDialog(onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
+            confirmButton = { TextButton(onClick = { vm.error = null }) { Text("OK") } })
+    }
+    if (confirm) {
+        val blank = n - answered
+        AlertDialog(
+            onDismissRequest = { confirm = false; finishPin = "" }, title = { Text(if (blank > 0) "Belum bisa selesai" else "Selesaikan ujian?") },
+            text = {
+                if (blank > 0) Text("Masih ada $blank soal belum dijawab. Jawab semua soal dulu.")
+                else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Semua soal sudah dijawab. Masukkan PIN dari pengawas. Setelah selesai, jawaban tidak bisa diubah.")
+                    OutlinedTextField(
+                        finishPin, { finishPin = it.filter(Char::isDigit).take(12) }, label = { Text("PIN pengawas") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    )
+                }
+            },
+            confirmButton = {
+                if (blank == 0) TextButton(enabled = finishPin.isNotEmpty(), onClick = { val p = finishPin; confirm = false; finishPin = ""; vm.submit(p) }) { Text("Selesai") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false; finishPin = "" }) { Text(if (blank > 0) "Kembali ke soal" else "Batal") } },
+        )
+    }
+}
+
+@Composable
+private fun QuestionBody(vm: MainViewModel, q: QuestionDto) {
+    Text(q.text, style = MaterialTheme.typography.bodyLarge)
+    if (q.imageUrl != null) Muted("Soal ini punya gambar, tetapi versi aplikasi ini belum bisa menampilkannya. Tanyakan ke pengawas.")
+    val picked = vm.answers[q.id]?.optionIds ?: emptySet()
+    when (q.type) {
+        "MULTIPLE_CHOICE", "TRUE_FALSE" -> q.options.forEach { o ->
+            Row(Modifier.fillMaxWidth().clickable { vm.selectOption(q, o.id) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = o.id in picked, onClick = { vm.selectOption(q, o.id) })
+                Text(o.text, modifier = Modifier.weight(1f))
+            }
+        }
+        "MULTIPLE_SELECT" -> {
+            Muted("Pilih semua jawaban yang benar.")
+            q.options.forEach { o ->
+                Row(Modifier.fillMaxWidth().clickable { vm.selectOption(q, o.id) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = o.id in picked, onCheckedChange = { vm.selectOption(q, o.id) })
+                    Text(o.text, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        else -> OutlinedTextField(
+            value = vm.answers[q.id]?.text.orEmpty(), onValueChange = { vm.setText(q, it) },
+            label = { Text(if (q.type == "ESSAY") "Jawaban uraian" else "Jawaban singkat") },
+            minLines = if (q.type == "ESSAY") 6 else 1, modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+// ───────── Result ─────────
+@Composable
+fun ResultScreen(vm: MainViewModel, s: Screen.Result) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val r = s.result
+                if (r == null) {
+                    Text("Ujian selesai", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(s.note ?: "", textAlign = TextAlign.Center)
+                } else if (!r.visible) {
+                    Text("Jawaban terkirim", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(r.message ?: "Hasil akan diumumkan oleh pengawas.", textAlign = TextAlign.Center)
+                } else {
+                    Text("Ujian selesai", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("%.1f".format(r.finalScore ?: 0.0), style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    if (r.passed != null) Text(if (r.passed) "Lulus (KKM ${r.kkm?.let { "%.0f".format(it) } ?: "-"})" else "Belum lulus (KKM ${r.kkm?.let { "%.0f".format(it) } ?: "-"})")
+                    if (r.correct != null) Muted("Benar ${r.correct} • Salah ${r.incorrect} • Kosong ${r.unanswered}")
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { vm.backToExams() }, modifier = Modifier.fillMaxWidth()) { Text("Kembali ke daftar ujian") }
+            }
+        }
+    }
+}

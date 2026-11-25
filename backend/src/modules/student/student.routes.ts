@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/db';
@@ -103,7 +103,7 @@ async function ownSession(req: Request, id: string) {
   return session;
 }
 
-async function finalize(sessionId: string, to: 'SUBMITTED' | 'FORCE_SUBMITTED') {
+export async function finalize(sessionId: string, to: 'SUBMITTED' | 'FORCE_SUBMITTED') {
   const claimed = await prisma.examSession.updateMany({
     where: { id: sessionId, status: { in: ['IN_PROGRESS', 'STOPPED'] } },
     data: { status: to, finishedAt: new Date() },
@@ -121,6 +121,27 @@ async function finalize(sessionId: string, to: 'SUBMITTED' | 'FORCE_SUBMITTED') 
   );
   await prisma.examResult.upsert({ where: { sessionId }, create: { sessionId, ...g }, update: g });
 }
+
+// ───────── Supervisor PIN ─────────
+const PIN_MAX_FAILS = 5;
+const PIN_LOCK_MS = 60_000;
+const pinFails = new Map<string, { n: number; until: number }>();
+
+/** Throws unless `pin` matches the exam's supervisor PIN. Five wrong tries lock the session's PIN entry for a minute. */
+function checkPin(sessionId: string, expected: string | null, pin: string | null | undefined) {
+  const f = pinFails.get(sessionId);
+  if (f && f.until > Date.now()) throw new AppError(429, 'PIN_LOCKED', 'Terlalu banyak PIN salah. Tunggu 1 menit.');
+  const a = Buffer.from(pin ?? '');
+  const b = Buffer.from(expected ?? '');
+  if (!expected || a.length !== b.length || !timingSafeEqual(a, b)) {
+    const n = (f?.n ?? 0) + 1;
+    pinFails.set(sessionId, n >= PIN_MAX_FAILS ? { n: 0, until: Date.now() + PIN_LOCK_MS } : { n, until: 0 });
+    throw badRequest('WRONG_PIN', 'PIN pengawas salah.');
+  }
+  pinFails.delete(sessionId);
+}
+
+const isAnswered = (a: GradeAnswer | undefined) => !!a && ((a.optionIds?.length ?? 0) > 0 || !!a.text?.trim());
 
 /** Time is server-authoritative: an expired session is closed here even if the phone never reports it. */
 async function closeIfExpired<T extends { id: string; status: string; deadlineAt: Date | null; exam: { offlineMode: boolean } }>(s: T): Promise<T> {
@@ -296,10 +317,34 @@ studentRouter.post(
 );
 
 studentRouter.post(
+  '/sessions/:id/reset-violations',
+  ah(async (req, res) => {
+    const session = await closeIfExpired(await ownSession(req, idParam.parse(req.params).id));
+    const { pin } = z.object({ pin: z.string().min(1).max(20) }).parse(req.body);
+    if (session.status !== 'IN_PROGRESS') throw new AppError(409, 'SESSION_NOT_ACTIVE', 'Sesi ujian sudah tidak aktif.');
+    checkPin(session.id, session.exam.supervisorPin, pin);
+    await prisma.examSession.update({ where: { id: session.id }, data: { warningCount: 0, penaltyUntil: null } });
+    res.json({ warningCount: 0, penaltyUntil: null, serverTime: new Date().toISOString() });
+  }),
+);
+
+studentRouter.post(
   '/sessions/:id/submit',
   ah(async (req, res) => {
     const session = await ownSession(req, idParam.parse(req.params).id);
-    if (session.status === 'IN_PROGRESS') await finalize(session.id, 'SUBMITTED');
+    if (session.status === 'IN_PROGRESS') {
+      // Once time is up the server closes the exam without a PIN; before that, finishing needs every answer and the supervisor PIN.
+      const timeUp = !!session.deadlineAt && Date.now() >= session.deadlineAt.getTime();
+      if (!timeUp) {
+        const { pin } = z.object({ pin: z.string().max(20).nullish() }).parse(req.body ?? {});
+        const total = await prisma.question.count({ where: { examId: session.examId } });
+        const latest = await latestAnswers(session.id);
+        const done = [...latest.values()].filter(isAnswered).length;
+        if (done < total) throw badRequest('UNANSWERED', `Masih ada ${total - done} soal belum dijawab.`);
+        checkPin(session.id, session.exam.supervisorPin, pin);
+      }
+      await finalize(session.id, 'SUBMITTED');
+    }
     const fresh = await prisma.examSession.findUniqueOrThrow({ where: { id: session.id }, include: { result: true, exam: true } });
     if (!DONE.includes(fresh.status) || !fresh.result) {
       throw new AppError(409, 'NOT_SUBMITTED', 'Ujian belum selesai (dihentikan pengawas).');

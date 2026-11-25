@@ -203,6 +203,7 @@ model Exam {
   scoreAdjustmentFactor Float            @default(1)
   scoreMin              Float            @default(0)
   scoreMax              Float            @default(100)
+  supervisorPin         String? // 6 digits, shown to the admin only; students type it to finish or unlock
   status                ExamStatus       @default(DRAFT)
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
