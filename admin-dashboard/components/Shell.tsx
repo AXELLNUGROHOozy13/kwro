@@ -14,6 +14,7 @@ const NAV = [
   { href: '/classes', label: 'Kelas' },
   { href: '/students', label: 'Siswa' },
   { href: '/exams', label: 'Ujian' },
+  { href: '/security', label: 'Keamanan' },
   { href: '/account', label: 'Akun' },
 ];
 

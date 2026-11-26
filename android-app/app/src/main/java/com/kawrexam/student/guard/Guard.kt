@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Handler
@@ -67,4 +68,15 @@ object AlertPlayer {
             ctx.getSystemService(Vibrator::class.java)?.vibrate(VibrationEffect.createOneShot(600, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
+}
+
+/**
+ * True while an external display is attached: HDMI / USB-C monitor, Miracast ("Smart View", "Screen Cast") or an
+ * overlay display. Uses the PRESENTATION category so a foldable's built-in cover screen is not mistaken for a cast.
+ * Limit: some mirroring paths (MediaProjection / Google Cast of the whole screen) create a private virtual display that
+ * apps cannot see. FLAG_SECURE is what keeps the exam out of those: the cast shows a black screen.
+ */
+fun externalDisplayPresent(ctx: Context): Boolean {
+    val dm = ctx.getSystemService(DisplayManager::class.java) ?: return false
+    return dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).any { it.displayId != android.view.Display.DEFAULT_DISPLAY }
 }

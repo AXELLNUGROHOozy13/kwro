@@ -49,7 +49,22 @@ async function authPost(path: string, body: unknown): Promise<void> {
   accessToken = (await res.json()).accessToken as string;
 }
 
-export const login = (email: string, password: string) => authPost('/api/v1/auth/admin/login', { email, password });
+/** Returns { mfaToken } when two-step verification is on (finish with completeMfa), otherwise signs in and returns null. */
+export async function login(email: string, password: string): Promise<{ mfaToken: string } | null> {
+  const res = await fetch('/api/v1/auth/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = await res.json();
+  if (data.mfaRequired) return { mfaToken: data.mfaToken as string };
+  accessToken = data.accessToken as string;
+  return null;
+}
+
+/** Second step: a 6-digit authenticator code or a one-time recovery code. */
+export const completeMfa = (mfaToken: string, code: string) => authPost('/api/v1/auth/admin/login/mfa', { mfaToken, code });
 export const register = (input: { activationCode: string; email: string; name: string; schoolName: string; password: string }) =>
   authPost('/api/v1/auth/admin/register', input);
 

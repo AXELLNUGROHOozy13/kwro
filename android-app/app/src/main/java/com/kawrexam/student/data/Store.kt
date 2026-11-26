@@ -15,6 +15,7 @@ class TokenStore(private val ctx: Context) {
     private val kRefresh = stringPreferencesKey("refresh")
     private val kStudent = stringPreferencesKey("student")
     private val kSession = stringPreferencesKey("active_session")
+    private val kSuspended = stringPreferencesKey("suspended")
 
     private suspend fun get(key: Preferences.Key<String>): String? = ctx.dataStore.data.first()[key]
     private suspend fun put(key: Preferences.Key<String>, value: String?) {
@@ -30,5 +31,8 @@ class TokenStore(private val ctx: Context) {
     suspend fun saveStudentJson(json: String) = put(kStudent, json)
     suspend fun activeSession() = get(kSession)
     suspend fun setActiveSession(id: String?) = put(kSession, id)
+    // Set the moment the student leaves screen pinning; survives an app restart until the server has been told.
+    suspend fun suspended() = get(kSuspended) == "1"
+    suspend fun setSuspended(v: Boolean) = put(kSuspended, if (v) "1" else null)
     suspend fun clear() { ctx.dataStore.edit { it.clear() } }
 }

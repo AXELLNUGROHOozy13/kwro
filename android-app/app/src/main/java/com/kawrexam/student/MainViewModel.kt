@@ -21,6 +21,8 @@ import com.kawrexam.student.data.msOf
 import com.kawrexam.student.data.scheduleSync
 import com.kawrexam.student.guard.AlertPlayer
 import com.kawrexam.student.guard.DndManager
+import com.kawrexam.student.guard.ExamVpnService
+import com.kawrexam.student.guard.externalDisplayPresent
 import com.kawrexam.student.guard.isPinned
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -37,6 +39,8 @@ sealed interface Screen {
     data class Checklist(val exam: ExamItem) : Screen
     data object InExam : Screen
     data class Result(val result: ResultDto?, val note: String?) : Screen
+    /** Left screen pinning during an exam: only a supervisor can reopen the session. */
+    data object Suspended : Screen
 }
 
 // Mirrors the server rule (warning n -> minutes). The server's value is the official one.
@@ -48,6 +52,8 @@ fun violationLabel(type: String): String = when (type) {
     "MULTI_WINDOW" -> "membuka mode layar terbagi"
     "OVERLAY_DETECTED" -> "ada jendela lain di atas ujian"
     "PINNING_EXITED" -> "keluar dari kunci layar"
+    "SCREEN_CAST" -> "layar disambungkan ke tampilan lain (cast / layar kedua)"
+    "VPN_DISABLED" -> "kunci jaringan ujian dimatikan"
     else -> "aktivitas tidak diizinkan"
 }
 
@@ -74,6 +80,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var finishing by mutableStateOf(false); private set
     var resumeTick by mutableIntStateOf(0)
     var pinRequest by mutableIntStateOf(0); private set
+    var vpnRequest by mutableIntStateOf(0); private set
+    var suspendedDelivered by mutableStateOf(false); private set
+
+    /** Count of the app's own dialogs on screen. They take window focus, which must not be read as leaving the exam. */
+    private var ownDialogs = 0
+    val ownDialogOpen: Boolean get() = ownDialogs > 0
+    fun dialogOpened() { ownDialogs++ }
+    fun dialogClosed() { ownDialogs = maxOf(0, ownDialogs - 1) }
+    fun requestVpn() { vpnRequest++ }
 
     val inExam: Boolean get() = screen is Screen.InExam
 
@@ -87,14 +102,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var guardArmedAt = Long.MAX_VALUE
     private var wasPinned = false
     private val textJobs = HashMap<String, Job>()
+    private var vpnDownReported = false
+    private var castSeen = 0
+    private var castReported = false
+    private var delivering: Job? = null
 
     init { viewModelScope.launch { bootstrap() } }
 
     // ── Startup ──
     private suspend fun bootstrap() {
         if (!repo.hasLogin()) { screen = Screen.Login; return }
+        // Restarting the app must not undo a suspension that the server has not been told about yet.
+        if (repo.isSuspended()) { student = repo.student(); screen = Screen.Suspended; deliverSuspension(); return }
         student = repo.student()
         repo.activeSessionId()?.let { if (resume(it)) return }
+        ExamVpnService.stop(getApplication()) // no exam is open: never leave the network lock on
         if (student?.mustChangePassword == true) screen = Screen.ChangePassword else { screen = Screen.Exams; loadExams() }
     }
 
@@ -140,12 +162,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun loadExams() { val r = repo.exams(); anchor(r.serverTime); exams = r.data }
 
     fun openChecklist(exam: ExamItem) { error = null; screen = Screen.Checklist(exam) }
-    fun backToExams() { error = null; screen = Screen.Exams; refreshExams() }
+    fun backToExams() { error = null; ExamVpnService.stop(getApplication()); screen = Screen.Exams; refreshExams() }
+    fun backToLogin() { error = null; student = null; screen = Screen.Login }
     fun logout() { viewModelScope.launch { doLogout() } }
     private suspend fun doLogout() {
-        loop?.cancel(); dnd.restore(); repo.logout()
+        loop?.cancel(); releaseGuards(); repo.logout()
         session = null; student = null; exams = emptyList(); screen = Screen.Login
     }
+
+    /** Do Not Disturb and the network lock only exist while an exam is open. */
+    private fun releaseGuards() { dnd.restore(); ExamVpnService.stop(getApplication()) }
 
     // ── Exam lifecycle ──
     fun startExam(exam: ExamItem) = launchBusy {
@@ -161,6 +187,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         warningCount = dto.warningCount; penaltyUntilMs = dto.penaltyUntil?.let(::msOf) ?: 0L
         // Violations only count once the screen is pinned (or 20 s have passed), so the pin dialog is not penalised.
         guardArmedAt = SystemClock.elapsedRealtime() + 20_000
+        vpnDownReported = false; castSeen = 0; castReported = false
         dnd.enableAlarmsOnly()
         screen = Screen.InExam
         pinRequest++
@@ -175,6 +202,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 delay(1000)
                 nowMs = serverNow()
                 checkPinned()
+                checkGuards()
                 if (!finishing && deadlineMs > 0 && nowMs >= deadlineMs) autoFinish()
                 if (++n % 15 == 0) launch { heartbeat() }
             }
@@ -186,10 +214,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (pinned && !wasPinned) { wasPinned = true; guardArmedAt = SystemClock.elapsedRealtime() + 1500 }
         else if (!pinned && wasPinned) {
             wasPinned = false
+            // Leaving the pin suspends the account (see onViolation). If the guard was not armed yet, just pin again.
             onViolation("PINNING_EXITED", null, SystemClock.elapsedRealtime())
-            guardArmedAt = SystemClock.elapsedRealtime() + 20_000
-            pinRequest++ // ask the Activity to pin again
+            if (screen is Screen.InExam) { guardArmedAt = SystemClock.elapsedRealtime() + 20_000; pinRequest++ }
         }
+    }
+
+    /** Network lock and second-display checks, once per second. Each is reported once per episode. */
+    private fun checkGuards() {
+        val now = SystemClock.elapsedRealtime()
+        if (!ExamVpnService.active) {
+            if (!vpnDownReported) {
+                vpnDownReported = true
+                onViolation("VPN_DISABLED", null, now)
+                guardArmedAt = now + 20_000 // the consent dialog steals focus for a moment
+                vpnRequest++ // ask the Activity to turn the lock back on
+            }
+        } else vpnDownReported = false
+
+        if (externalDisplayPresent(getApplication())) {
+            if (++castSeen >= 2 && !castReported) { castReported = true; onViolation("SCREEN_CAST", null, now) } // 2 s in a row: no flicker
+        } else { castSeen = 0; castReported = false }
     }
 
     private suspend fun heartbeat() {
@@ -203,7 +248,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (h.status) {
                 "IN_PROGRESS" -> mergeSync(repo.syncAll())
                 "SUBMITTED", "FORCE_SUBMITTED" -> finishRemote()
-                else -> leaveExam("Ujian dihentikan oleh pengawas. Jawabanmu tersimpan.")
+                else -> if (h.suspended) suspendRemote() else leaveExam("Ujian dihentikan oleh pengawas. Jawabanmu tersimpan.")
             }
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
             online = false
@@ -305,7 +350,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishWith(r: ResultDto) {
-        loop?.cancel(); dnd.restore()
+        loop?.cancel(); releaseGuards()
         val sid = session?.sessionId
         session = null; finishing = false
         viewModelScope.launch { sid?.let { repo.forget(it) } }
@@ -313,7 +358,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun leaveExam(note: String) {
-        loop?.cancel(); dnd.restore()
+        loop?.cancel(); releaseGuards()
         session = null; finishing = false
         viewModelScope.launch { repo.setActiveSession(null) }
         screen = Screen.Result(null, note)
@@ -323,6 +368,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun onViolation(type: String, durationMs: Int?, startedElapsed: Long) {
         val s = session ?: return
         if (screen !is Screen.InExam || finishing || startedElapsed < guardArmedAt) return
+        if (type == "PINNING_EXITED") { suspendLocally(s.sessionId, System.currentTimeMillis()); return }
         warningCount += 1
         val minutes = PENALTY_MINUTES[minOf(warningCount - 1, PENALTY_MINUTES.size - 1)]
         penaltyUntilMs = maxOf(penaltyUntilMs, serverNow() + minutes * 60_000L)
@@ -330,6 +376,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         AlertPlayer.play(getApplication())
         val occurredAt = System.currentTimeMillis() - (durationMs ?: 0)
         viewModelScope.launch { repo.recordViolation(s.sessionId, type, occurredAt, durationMs); syncNow() }
+    }
+
+    // ── Suspension (forced exit from screen pinning) ──
+    /**
+     * The student left screen pinning. The exam closes on this phone at once, the event is reported, and the login is
+     * cleared once the server knows. Coming back needs a supervisor to reopen the session and a fresh sign-in.
+     */
+    private fun suspendLocally(sid: String, occurredAt: Long) {
+        loop?.cancel()
+        finishing = false; session = null
+        releaseGuards()
+        screen = Screen.Suspended
+        suspendedDelivered = false
+        AlertPlayer.play(getApplication())
+        viewModelScope.launch {
+            repo.setSuspended(true)
+            repo.recordViolation(sid, "PINNING_EXITED", occurredAt, null)
+            deliverSuspension()
+        }
+    }
+
+    /** The server says this session is suspended (for example reported from another path): same end state. */
+    private fun suspendRemote() {
+        loop?.cancel()
+        finishing = false; session = null
+        releaseGuards()
+        screen = Screen.Suspended
+        suspendedDelivered = false
+        viewModelScope.launch { repo.setSuspended(true); deliverSuspension() }
+    }
+
+    /** Retries until the queued violation reached the server (or the server already revoked this login), then signs out. */
+    private fun deliverSuspension() {
+        if (delivering?.isActive == true) return
+        delivering = viewModelScope.launch {
+            while (isActive) {
+                try { repo.syncAll(); break }
+                catch (e: CancellationException) { throw e }
+                catch (e: HttpException) { if (e.code() == 401) break; delay(5000) } // 401: the server already ended this login
+                catch (e: Exception) { delay(5000) }
+            }
+            repo.logout() // also clears the suspended flag: the next start needs a fresh sign-in
+            suspendedDelivered = true
+        }
     }
 
     fun penaltyLeftMs(): Long = (penaltyUntilMs - nowMs).coerceAtLeast(0)

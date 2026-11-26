@@ -29,7 +29,7 @@ data class ExamItem(
     val id: String, val title: String, val description: String? = null, val durationMinutes: Int,
     val startsAt: String? = null, val endsAt: String? = null, val status: String,
     val sessionId: String? = null, val sessionStatus: String? = null,
-    val canStart: Boolean = false, val reason: String? = null,
+    val canStart: Boolean = false, val reason: String? = null, val suspended: Boolean = false,
 )
 @Serializable data class ExamListResp(val data: List<ExamItem>, val serverTime: String)
 
@@ -49,10 +49,10 @@ data class SessionDto(
 @Serializable data class AnswersReq(val answers: List<AnswerEvent>)
 @Serializable data class ViolationEvent(val clientEventId: String, val type: String, val occurredAt: String, val durationMs: Int? = null)
 @Serializable data class ViolationsReq(val events: List<ViolationEvent>)
-@Serializable data class ViolationsResp(val warningCount: Int, val penaltyUntil: String? = null, val penaltyMinutes: Int = 0, val serverTime: String)
+@Serializable data class ViolationsResp(val warningCount: Int, val penaltyUntil: String? = null, val penaltyMinutes: Int = 0, val serverTime: String, val suspended: Boolean = false)
 @Serializable data class PinReq(val pin: String? = null)
 @Serializable data class ResetResp(val warningCount: Int = 0, val penaltyUntil: String? = null)
-@Serializable data class HeartbeatResp(val status: String, val serverTime: String, val deadlineAt: String, val warningCount: Int = 0, val penaltyUntil: String? = null)
+@Serializable data class HeartbeatResp(val status: String, val suspended: Boolean = false, val serverTime: String, val deadlineAt: String, val warningCount: Int = 0, val penaltyUntil: String? = null)
 @Serializable
 data class ResultDto(
     val visible: Boolean, val message: String? = null, val finalScore: Double? = null, val passed: Boolean? = null,

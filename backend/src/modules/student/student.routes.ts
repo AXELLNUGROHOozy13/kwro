@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { audit } from '../../lib/audit';
 import { prisma } from '../../lib/db';
 import { ah, AppError, badRequest, notFound } from '../../lib/errors';
 import { hashPassword, verifyPassword } from '../../lib/password';
@@ -51,9 +52,10 @@ studentRouter.post(
 );
 
 // ───────── Exam list ─────────
-function availability(exam: { status: string; startsAt: Date | null; endsAt: Date | null }, sessionStatus: string | undefined, now: Date) {
+const SUSPENDED_MSG = 'Akunmu ditangguhkan karena keluar dari kunci layar. Hanya pengawas yang bisa membukanya. Hubungi pengawas.';
+function availability(exam: { status: string; startsAt: Date | null; endsAt: Date | null }, sessionStatus: string | undefined, now: Date, suspendReason?: string | null) {
   if (sessionStatus && DONE.includes(sessionStatus)) return { canStart: false, reason: 'Sudah dikumpulkan.' };
-  if (sessionStatus === 'STOPPED') return { canStart: false, reason: 'Dihentikan pengawas. Hubungi pengawas.' };
+  if (sessionStatus === 'STOPPED') return { canStart: false, reason: suspendReason === 'PIN_EXITED' ? SUSPENDED_MSG : 'Dihentikan pengawas. Hubungi pengawas.' };
   if (sessionStatus === 'IN_PROGRESS') return { canStart: true, reason: null };
   const open = exam.status === 'ACTIVE' || (exam.status === 'SCHEDULED' && !!exam.startsAt && exam.startsAt <= now);
   if (!open || (exam.startsAt && now < exam.startsAt)) return { canStart: false, reason: 'Belum dimulai.' };
@@ -70,7 +72,7 @@ studentRouter.get(
       ? await prisma.exam.findMany({
           where: { adminId: s.adminId, status: { in: ['SCHEDULED', 'ACTIVE'] }, assignments: { some: { classId: s.classId } } },
           orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
-          include: { sessions: { where: { studentId: s.id }, select: { id: true, status: true } } },
+          include: { sessions: { where: { studentId: s.id }, select: { id: true, status: true, suspendReason: true } } },
         })
       : [];
     res.json({
@@ -80,8 +82,8 @@ studentRouter.get(
         return {
           id: e.id, title: e.title, description: e.description, durationMinutes: e.durationMinutes,
           startsAt: e.startsAt?.toISOString() ?? null, endsAt: e.endsAt?.toISOString() ?? null, status: e.status,
-          sessionId: sess?.id ?? null, sessionStatus: sess?.status ?? null,
-          ...availability(e, sess?.status, now),
+          sessionId: sess?.id ?? null, sessionStatus: sess?.status ?? null, suspended: sess?.suspendReason === 'PIN_EXITED',
+          ...availability(e, sess?.status, now, sess?.suspendReason),
         };
       }),
     });
@@ -189,7 +191,7 @@ studentRouter.post(
     const now = new Date();
     let session = await prisma.examSession.findUnique({ where: { examId_studentId: { examId: id, studentId: st.id } } });
     if (session && DONE.includes(session.status)) throw badRequest('ALREADY_SUBMITTED', 'Ujian ini sudah dikumpulkan.');
-    if (session?.status === 'STOPPED') throw badRequest('SESSION_STOPPED', 'Ujian dihentikan pengawas. Hubungi pengawas.');
+    if (session?.status === 'STOPPED') throw badRequest('SESSION_STOPPED', session.suspendReason === 'PIN_EXITED' ? SUSPENDED_MSG : 'Ujian dihentikan pengawas. Hubungi pengawas.');
 
     if (!session || session.status === 'NOT_STARTED') {
       const a = availability(exam, undefined, now);
@@ -263,7 +265,7 @@ studentRouter.put(
 const violationsSchema = z.object({
   events: z.array(z.object({
     clientEventId: z.string().min(8).max(64),
-    type: z.enum(['LEFT_APP', 'FOCUS_LOST', 'MULTI_WINDOW', 'OVERLAY_DETECTED', 'PINNING_EXITED']),
+    type: z.enum(['LEFT_APP', 'FOCUS_LOST', 'MULTI_WINDOW', 'OVERLAY_DETECTED', 'PINNING_EXITED', 'SCREEN_CAST', 'VPN_DISABLED']),
     occurredAt: z.string().datetime({ offset: true }),
     durationMs: z.number().int().min(0).max(86_400_000).nullish(),
   })).min(1).max(20),
@@ -277,6 +279,7 @@ studentRouter.post(
     let warningCount = session.warningCount;
     let penaltyUntil = session.penaltyUntil;
     let lastMinutes = 0;
+    let suspend = false;
 
     if (session.status === 'IN_PROGRESS') {
       const known = new Set((await prisma.violationLog.findMany({ where: { clientEventId: { in: events.map((e) => e.clientEventId) } }, select: { clientEventId: true } })).map((v) => v.clientEventId));
@@ -284,7 +287,10 @@ studentRouter.post(
       for (const e of [...events].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))) {
         const at = new Date(e.occurredAt).getTime();
         // Ignore repeats, events outside the session, and the same leave reported twice (FOCUS_LOST + LEFT_APP).
-        if (known.has(e.clientEventId) || at < (session.startedAt?.getTime() ?? 0) || at > Date.now() + 60_000 || at - lastAt < 2000) continue;
+        // Leaving the pin is never merged away by the 2 s repeat filter: it must always reach the suspension below.
+        const forced = e.type === 'PINNING_EXITED';
+        if (known.has(e.clientEventId) || at < (session.startedAt?.getTime() ?? 0) || at > Date.now() + 60_000 || (!forced && at - lastAt < 2000)) continue;
+        if (forced) suspend = true;
         const minutes = PENALTY_MINUTES[Math.min(warningCount, PENALTY_MINUTES.length - 1)];
         warningCount += 1;
         lastAt = at;
@@ -295,9 +301,18 @@ studentRouter.post(
           data: { sessionId: session.id, type: e.type, occurredAt: new Date(at), durationMs: e.durationMs ?? null, clientEventId: e.clientEventId, penaltyMinutes: minutes, status: 'CONFIRMED' },
         });
       }
-      if (lastMinutes > 0) await prisma.examSession.update({ where: { id: session.id }, data: { warningCount, penaltyUntil } });
+      if (suspend) {
+        // Forced exit from screen pinning: the session is suspended and only a supervisor can reopen it.
+        // Refresh tokens are revoked, so the student must sign in again once the supervisor has reset the session.
+        await prisma.$transaction([
+          prisma.examSession.update({ where: { id: session.id }, data: { warningCount, penaltyUntil, status: 'STOPPED', suspendReason: 'PIN_EXITED' } }),
+          prisma.refreshToken.updateMany({ where: { studentId: session.studentId, revokedAt: null }, data: { revokedAt: new Date() } }),
+        ]);
+        await audit({ actorType: 'STUDENT', actorId: session.studentId, action: 'session.suspended.pin_exit', targetType: 'ExamSession', targetId: session.id });
+      } else if (lastMinutes > 0) await prisma.examSession.update({ where: { id: session.id }, data: { warningCount, penaltyUntil } });
     }
     res.json({
+      suspended: suspend || (session.status === 'STOPPED' && session.suspendReason === 'PIN_EXITED'),
       warningCount, penaltyMinutes: lastMinutes, serverTime: new Date().toISOString(),
       penaltyUntil: penaltyUntil && penaltyUntil > new Date() ? penaltyUntil.toISOString() : null,
     });
@@ -310,7 +325,8 @@ studentRouter.post(
   ah(async (req, res) => {
     const s = await closeIfExpired(await ownSession(req, idParam.parse(req.params).id));
     res.json({
-      status: s.status, serverTime: new Date().toISOString(), deadlineAt: s.deadlineAt!.toISOString(), warningCount: s.warningCount,
+      status: s.status, suspended: s.status === 'STOPPED' && s.suspendReason === 'PIN_EXITED',
+      serverTime: new Date().toISOString(), deadlineAt: s.deadlineAt!.toISOString(), warningCount: s.warningCount,
       penaltyUntil: s.penaltyUntil && s.penaltyUntil > new Date() ? s.penaltyUntil.toISOString() : null,
     });
   }),

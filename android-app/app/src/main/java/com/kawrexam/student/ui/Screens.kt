@@ -34,6 +34,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,7 @@ import com.kawrexam.student.data.AnswerState
 import com.kawrexam.student.data.ExamItem
 import com.kawrexam.student.data.QuestionDto
 import com.kawrexam.student.guard.DndManager
+import com.kawrexam.student.guard.ExamVpnService
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -77,6 +79,7 @@ fun AppRoot(vm: MainViewModel, dnd: DndManager) {
             is Screen.Checklist -> ChecklistScreen(vm, s.exam, dnd)
             Screen.InExam -> ExamScreen(vm)
             is Screen.Result -> ResultScreen(vm, s)
+            Screen.Suspended -> SuspendedScreen(vm)
         }
     }
 }
@@ -189,6 +192,7 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
     val tick = vm.resumeTick // re-check permissions when the student returns from Settings
     val dndOk = remember(tick) { dnd.hasAccess() }
     val batteryOk = remember(tick) { dnd.ignoresBatteryOptimization() }
+    val vpnOk = ExamVpnService.active // observable: flips as soon as the student approves the system dialog
     var consent by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(exam.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -202,6 +206,13 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
         }
         GlassCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (vpnOk) "✔ Kunci jaringan ujian aktif" else "✖ Kunci jaringan ujian belum aktif", fontWeight = FontWeight.SemiBold)
+                Muted("Memutus internet semua aplikasi lain selama ujian (chat, browser, VPN lain). Hanya KAWREXAM yang tetap online. Tidak ada data yang dikirim atau dibaca lewat fitur ini. Android akan menampilkan permintaan koneksi VPN: pilih OK. Jika kamu memakai VPN lain, VPN itu akan dimatikan.")
+                if (!vpnOk) OutlinedButton(onClick = { vm.requestVpn() }) { Text("Aktifkan kunci jaringan") }
+            }
+        }
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if (batteryOk) "✔ Hemat baterai tidak membatasi aplikasi" else "• Disarankan: izinkan aplikasi tanpa pembatasan baterai", fontWeight = FontWeight.SemiBold)
                 if (!batteryOk) OutlinedButton(onClick = { dnd.openBatterySettings() }) { Text("Buka pengaturan") }
             }
@@ -209,7 +220,7 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
         GlassCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Yang terjadi selama ujian", fontWeight = FontWeight.SemiBold)
-                Muted("• Layar dikunci (pin) dan tangkapan layar diblokir.\n• Notifikasi dimatikan, hanya alarm yang berbunyi.\n• Aplikasi mencatat kalau kamu keluar dari ujian. Tidak ada data lain yang dipantau.\n• Keluar dari ujian = pelanggaran: layar terkunci 5, 10, lalu 20 menit. Waktu ujian tetap berjalan.\n• Disarankan: nyalakan mode pesawat dengan Wi-Fi tetap menyala.")
+                Muted("• Layar dikunci (pin) dan tangkapan layar diblokir.\n• Notifikasi dimatikan, hanya alarm yang berbunyi.\n• Aplikasi mencatat kalau kamu keluar dari ujian. Tidak ada data lain yang dipantau.\n• Keluar dari ujian = pelanggaran: layar terkunci 5, 10, lalu 20 menit. Waktu ujian tetap berjalan.\n• Menyambungkan layar ke TV / layar lain (cast) atau mematikan kunci jaringan = pelanggaran.\n• Keluar paksa dari kunci layar = akunmu ditangguhkan. Hanya pengawas yang bisa membukanya, lalu kamu masuk ulang.\n• Disarankan: nyalakan mode pesawat dengan Wi-Fi tetap menyala.")
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { consent = !consent }) {
                     Checkbox(checked = consent, onCheckedChange = { consent = it })
                     Text("Saya mengerti dan setuju.")
@@ -217,7 +228,7 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
             }
         }
         ErrorText(vm.error)
-        Button(onClick = { vm.startExam(exam) }, enabled = dndOk && consent && !vm.busy, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { vm.startExam(exam) }, enabled = dndOk && vpnOk && consent && !vm.busy, modifier = Modifier.fillMaxWidth()) {
             Text(if (vm.busy) "Memuat soal…" else "Mulai ujian")
         }
         OutlinedButton(onClick = { vm.backToExams() }, modifier = Modifier.fillMaxWidth()) { Text("Batal") }
@@ -313,17 +324,17 @@ fun ExamScreen(vm: MainViewModel) {
     }
 
     vm.warning?.let { w ->
-        AlertDialog(onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
+        TrackedAlertDialog(vm, onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
             confirmButton = { TextButton(onClick = { vm.warning = null }) { Text("Mengerti") } })
     }
     vm.error?.let { e ->
-        AlertDialog(onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
+        TrackedAlertDialog(vm, onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
             confirmButton = { TextButton(onClick = { vm.error = null }) { Text("OK") } })
     }
     if (confirm) {
         val blank = n - answered
-        AlertDialog(
-            onDismissRequest = { confirm = false; finishPin = "" }, title = { Text(if (blank > 0) "Belum bisa selesai" else "Selesaikan ujian?") },
+        TrackedAlertDialog(
+            vm, onDismissRequest = { confirm = false; finishPin = "" }, title = { Text(if (blank > 0) "Belum bisa selesai" else "Selesaikan ujian?") },
             text = {
                 if (blank > 0) Text("Masih ada $blank soal belum dijawab. Jawab semua soal dulu.")
                 else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -393,6 +404,44 @@ fun ResultScreen(vm: MainViewModel, s: Screen.Result) {
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = { vm.backToExams() }, modifier = Modifier.fillMaxWidth()) { Text("Kembali ke daftar ujian") }
             }
+        }
+    }
+}
+
+/**
+ * AlertDialog that tells the guard "this dialog is ours". A dialog is a separate window and takes focus from the exam;
+ * without this, reading a dialog for more than 3 seconds would be reported as leaving the exam.
+ */
+@Composable
+private fun TrackedAlertDialog(
+    vm: MainViewModel,
+    onDismissRequest: () -> Unit,
+    title: @Composable () -> Unit,
+    text: @Composable () -> Unit,
+    confirmButton: @Composable () -> Unit,
+    dismissButton: @Composable (() -> Unit)? = null,
+) {
+    DisposableEffect(Unit) { vm.dialogOpened(); onDispose { vm.dialogClosed() } }
+    AlertDialog(onDismissRequest = onDismissRequest, title = title, text = text, confirmButton = confirmButton, dismissButton = dismissButton)
+}
+
+// ───────── Suspended (left screen pinning) ─────────
+@Composable
+fun SuspendedScreen(vm: MainViewModel) {
+    BackHandler(enabled = !vm.suspendedDelivered) { }
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Akun ditangguhkan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Text("Kamu keluar dari kunci layar saat ujian berlangsung. Ujian di HP ini dihentikan dan jawabanmu yang sudah tersimpan aman.", textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Muted("Hanya pengawas yang bisa membuka kembali ujianmu. Setelah dibuka, masuk ulang dengan kode dan kata sandimu.", Modifier.fillMaxWidth())
+        Spacer(Modifier.height(20.dp))
+        if (!vm.suspendedDelivered) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(8.dp))
+            Muted("Mengirim laporan ke server… Pastikan HP tersambung internet.")
+        } else {
+            Button(onClick = { vm.backToLogin() }) { Text("Ke halaman masuk") }
         }
     }
 }

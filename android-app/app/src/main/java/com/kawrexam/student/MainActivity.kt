@@ -1,15 +1,18 @@
 package com.kawrexam.student
 
 import android.content.res.Configuration
+import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import com.kawrexam.student.guard.DndManager
+import com.kawrexam.student.guard.ExamVpnService
 import com.kawrexam.student.guard.GRACE_MS
 import com.kawrexam.student.ui.AppRoot
 import com.kawrexam.student.ui.KawrexamTheme
@@ -22,6 +25,11 @@ class MainActivity : ComponentActivity() {
     private var leftType: String? = null
     private var resumed = false
     private var focused = false
+
+    // The system's "Connection request" dialog for the exam network lock; the student approves it once in the checklist.
+    private val vpnConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        if (r.resultCode == RESULT_OK) ExamVpnService.start(this)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +50,12 @@ class MainActivity : ComponentActivity() {
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         runCatching { stopLockTask() }
+                    }
+                }
+                LaunchedEffect(vm.vpnRequest) {
+                    if (vm.vpnRequest > 0) {
+                        val consent = VpnService.prepare(this@MainActivity)
+                        if (consent != null) vpnConsent.launch(consent) else ExamVpnService.start(this@MainActivity)
                     }
                 }
                 AppRoot(vm, dnd)
@@ -67,6 +81,8 @@ class MainActivity : ComponentActivity() {
 
     private fun markLeft(type: String) {
         if (!vm.inExam) return
+        // The app's own warning / confirm dialogs take window focus; that is not leaving the exam. A real pause still counts.
+        if (type == "FOCUS_LOST" && vm.ownDialogOpen) return
         if (leftAt == 0L) { leftAt = SystemClock.elapsedRealtime(); leftType = type }
         else if (type == "LEFT_APP") leftType = type // a real pause outranks a plain focus loss
     }

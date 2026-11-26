@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { env } from '../../config/env';
 import { ah, unauthorized } from '../../lib/errors';
-import { loginAdmin, loginDeveloper, loginStudent, registerAdmin } from './auth.service';
+import { completeAdminMfa, loginAdmin, loginDeveloper, loginStudent, registerAdmin } from './auth.service';
 import {
   REFRESH_COOKIE,
   clearRefreshCookie,
@@ -53,7 +53,19 @@ authRouter.post(
   credentialLimiter,
   ah(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
-    respond(res, await loginAdmin(email, password, requestMeta(req)));
+    const r = await loginAdmin(email, password, requestMeta(req));
+    if ('mfaToken' in r) { res.json({ mfaRequired: true, mfaToken: r.mfaToken }); return; }
+    respond(res, r.session);
+  }),
+);
+
+// Second step of an administrator login when two-step verification is on.
+authRouter.post(
+  '/admin/login/mfa',
+  credentialLimiter,
+  ah(async (req, res) => {
+    const { mfaToken, code } = z.object({ mfaToken: z.string().min(20).max(1000), code: z.string().min(6).max(20) }).parse(req.body);
+    respond(res, await completeAdminMfa(mfaToken, code, requestMeta(req)));
   }),
 );
 

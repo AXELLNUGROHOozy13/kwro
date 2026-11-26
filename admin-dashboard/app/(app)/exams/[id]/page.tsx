@@ -20,7 +20,7 @@ interface Exam {
 }
 interface ClassRow { id: string; name: string; _count: { students: number } }
 interface Participant {
-  studentId: string; name: string; className: string | null; status: string; warningCount: number;
+  studentId: string; name: string; className: string | null; status: string; suspended?: boolean; warningCount: number;
   finishedAt: string | null; finalScore: number | null; passed: boolean | null;
 }
 type Tab = 'questions' | 'settings' | 'classes' | 'results';
@@ -377,6 +377,15 @@ function ResultsTab({ exam, onError }: { exam: Exam; onError: (e: unknown) => vo
     catch (err) { onError(err); }
   }
 
+  async function unsuspend(r: Participant) {
+    const v = window.prompt(`Buka kunci ${r.name}? Siswa harus masuk ulang dengan kata sandinya.\nTambah waktu (menit, boleh 0):`, '0');
+    if (v === null) return;
+    const extendMinutes = Number(v);
+    if (!Number.isInteger(extendMinutes) || extendMinutes < 0) { window.alert('Isi angka menit 0 atau lebih.'); return; }
+    try { await api(`/exams/${exam.id}/students/${r.studentId}/unsuspend`, { method: 'POST', body: { extendMinutes } }); load(); }
+    catch (err) { onError(err); }
+  }
+
   if (rows === null) return <p className="muted">Memuat…</p>;
   if (rows.length === 0) return <p className="glass p-5 muted">Belum ada peserta. Pilih kelas di tab Kelas dan pastikan kelas itu berisi siswa.</p>;
 
@@ -403,11 +412,14 @@ function ResultsTab({ exam, onError }: { exam: Exam; onError: (e: unknown) => vo
                 <tr key={r.studentId}>
                   <td className="font-semibold">{r.name}</td>
                   <td>{r.className ?? '–'}</td>
-                  <td><span className={`badge ${cls}`}>{text}</span></td>
+                  <td><span className={`badge ${cls}`}>{text}</span>{r.suspended && <span className="badge badge-bad ml-2">Ditangguhkan: keluar dari kunci layar</span>}</td>
                   <td className="num">{r.finalScore === null ? '–' : r.finalScore.toFixed(1)}{r.passed !== null && <span className={`badge ml-2 ${r.passed ? 'badge-ok' : 'badge-bad'}`}>{r.passed ? 'Lulus' : 'Belum lulus'}</span>}</td>
                   <td className="num">{r.warningCount}</td>
                   <td className="muted">{fmtDate(r.finishedAt)}</td>
-                  <td>{(r.status === 'IN_PROGRESS' || r.status === 'STOPPED') && <button className="btn" onClick={() => forceSubmit(r)}>Kumpulkan</button>}</td>
+                  <td className="whitespace-nowrap">
+                    {r.status === 'STOPPED' && <button className="btn btn-primary" onClick={() => unsuspend(r)}>Buka kunci</button>}{' '}
+                    {(r.status === 'IN_PROGRESS' || r.status === 'STOPPED') && <button className="btn" onClick={() => forceSubmit(r)}>Kumpulkan</button>}
+                  </td>
                 </tr>
               );
             })}

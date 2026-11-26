@@ -56,6 +56,8 @@ enum ViolationType {
   PINNING_EXITED
   SCREENSHOT_ATTEMPT
   SUSPICIOUS_SESSION
+  SCREEN_CAST
+  VPN_DISABLED
 }
 enum ViolationStatus {
   CONFIRMED
@@ -69,6 +71,9 @@ model Developer {
   name         String
   passwordHash String
   mfaSecret    String? // reserved for optional MFA (not implemented yet)
+  failedLogins   Int       @default(0)
+  lastFailedAt   DateTime?
+  lockedUntil    DateTime? // login refused until this time (escalates with repeated failures)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -106,6 +111,13 @@ model Administrator {
   schoolName       String
   passwordHash     String
   status           AdminStatus @default(ACTIVE)
+  failedLogins   Int       @default(0)
+  lastFailedAt   DateTime?
+  lockedUntil    DateTime? // login refused until this time (escalates with repeated failures)
+  totpSecretEnc     String? // AES-256-GCM encrypted TOTP secret (key derived from CODE_HASH_PEPPER)
+  totpEnabled       Boolean   @default(false)
+  totpLastStep      Int? // last accepted 30 s step, so a code cannot be replayed
+  recoveryCodeHashes String[]
   activationCodeId String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
@@ -146,6 +158,9 @@ model Student {
   passwordHash       String
   mustChangePassword Boolean       @default(true)
   status             StudentStatus @default(ACTIVE)
+  failedLogins   Int       @default(0)
+  lastFailedAt   DateTime?
+  lockedUntil    DateTime? // login refused until this time (escalates with repeated failures)
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -275,6 +290,7 @@ model ExamSession {
   finishedAt   DateTime?
   warningCount Int           @default(0)
   penaltyUntil DateTime?
+  suspendReason String? // PIN_EXITED: only a supervisor can reopen the session
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 

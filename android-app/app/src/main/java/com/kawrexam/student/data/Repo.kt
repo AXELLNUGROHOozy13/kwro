@@ -40,6 +40,8 @@ class Repo(private val api: Api, private val dao: AppDao, private val store: Tok
         if (!r.isSuccessful) throw HttpException(r)
     }
     suspend fun logout() = store.clear()
+    suspend fun isSuspended(): Boolean = store.suspended()
+    suspend fun setSuspended(v: Boolean) = store.setSuspended(v)
 
     // ── Exams ──
     suspend fun exams(): ExamListResp = api.exams()

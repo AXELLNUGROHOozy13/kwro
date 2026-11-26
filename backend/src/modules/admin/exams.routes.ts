@@ -342,6 +342,33 @@ examsRouter.post(
   }),
 );
 
+// Reopens a session that was suspended (forced exit from screen pinning, or stopped by a supervisor).
+// The student's refresh tokens were revoked at suspension, so they must sign in again before continuing.
+examsRouter.post(
+  '/:id/students/:studentId/unsuspend',
+  ah(async (req, res) => {
+    const { id, studentId } = z.object({ id: z.string().uuid(), studentId: z.string().uuid() }).parse(req.params);
+    const { extendMinutes } = z.object({ extendMinutes: z.number().int().min(0).max(240).optional() }).parse(req.body ?? {});
+    await ownExam(id, adminId(req));
+    const session = await prisma.examSession.findFirst({ where: { examId: id, studentId, student: { adminId: adminId(req) } } });
+    if (!session) throw notFound('Siswa ini belum memulai ujian.');
+    if (session.status !== 'STOPPED') throw badRequest('NOT_SUSPENDED', 'Sesi siswa ini tidak sedang ditangguhkan.');
+    const base = Math.max(session.deadlineAt?.getTime() ?? Date.now(), Date.now());
+    await prisma.$transaction([
+      prisma.examSession.update({
+        where: { id: session.id },
+        data: {
+          status: 'IN_PROGRESS', suspendReason: null, penaltyUntil: null,
+          ...(extendMinutes ? { deadlineAt: new Date(base + extendMinutes * 60_000) } : {}),
+        },
+      }),
+      prisma.student.update({ where: { id: studentId }, data: { failedLogins: 0, lastFailedAt: null, lockedUntil: null } }),
+    ]);
+    await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'session.unsuspend', targetType: 'ExamSession', targetId: session.id, metadata: { extendMinutes: extendMinutes ?? 0 }, ip: req.ip });
+    res.status(204).end();
+  }),
+);
+
 // ───────── Participants and results ─────────
 // Lists every student in the assigned classes with their session, so "not started" is visible too.
 examsRouter.get(
@@ -356,7 +383,7 @@ examsRouter.get(
         id: true, name: true, class: { select: { name: true } },
         sessions: {
           where: { examId: id },
-          select: { status: true, warningCount: true, startedAt: true, finishedAt: true, result: { select: { finalScore: true, passed: true } } },
+          select: { status: true, suspendReason: true, warningCount: true, startedAt: true, finishedAt: true, result: { select: { finalScore: true, passed: true } } },
         },
       },
     });
@@ -368,6 +395,7 @@ examsRouter.get(
           name: s.name,
           className: s.class?.name ?? null,
           status: session?.status ?? 'NOT_STARTED',
+          suspended: session?.status === 'STOPPED' && session.suspendReason === 'PIN_EXITED',
           warningCount: session?.warningCount ?? 0,
           startedAt: session?.startedAt ?? null,
           finishedAt: session?.finishedAt ?? null,
