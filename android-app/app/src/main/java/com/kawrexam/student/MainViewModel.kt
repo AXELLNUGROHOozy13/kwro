@@ -196,8 +196,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun releaseGuards() { dnd.restore(); ExamVpnService.stop(getApplication()) }
 
     // ── Exam lifecycle ──
-    fun startExam(exam: ExamItem) = launchBusy {
-        val dto = repo.start(exam.id)
+    fun startExam(exam: ExamItem, token: String) = launchBusy {
+        val dto = repo.start(exam.id, token.trim())
         repo.setActiveSession(dto.sessionId)
         enterExam(dto)
     }

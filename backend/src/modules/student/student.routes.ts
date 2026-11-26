@@ -172,6 +172,24 @@ function checkPin(sessionId: string, expected: string | null, pin: string | null
   pinFails.delete(sessionId);
 }
 
+// ───────── Exam token ─────────
+const tokenFails = new Map<string, { n: number; until: number }>();
+const normToken = (t: string | null | undefined) => (t ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** Throws unless `token` is the exam's token. Five wrong tries lock this student's token entry for this exam for a minute. */
+function checkToken(key: string, expected: string | null, token: string | null | undefined) {
+  const f = tokenFails.get(key);
+  if (f && f.until > Date.now()) throw new AppError(429, 'TOKEN_LOCKED', 'Terlalu banyak token salah. Tunggu 1 menit.');
+  const a = Buffer.from(normToken(token));
+  const b = Buffer.from(normToken(expected));
+  if (!b.length || a.length !== b.length || !timingSafeEqual(a, b)) {
+    const n = (f?.n ?? 0) + 1;
+    tokenFails.set(key, n >= PIN_MAX_FAILS ? { n: 0, until: Date.now() + PIN_LOCK_MS } : { n, until: 0 });
+    throw badRequest('WRONG_TOKEN', 'Token ujian salah. Minta token yang benar ke pengawas.');
+  }
+  tokenFails.delete(key);
+}
+
 const isAnswered = (a: GradeAnswer | undefined) => !!a && ((a.optionIds?.length ?? 0) > 0 || !!a.text?.trim());
 
 /** Time is server-authoritative: an expired session is closed here even if the phone never reports it. */
@@ -221,6 +239,10 @@ studentRouter.post(
     let session = await prisma.examSession.findUnique({ where: { examId_studentId: { examId: id, studentId: st.id } } });
     if (session && DONE.includes(session.status)) throw badRequest('ALREADY_SUBMITTED', 'Ujian ini sudah dikumpulkan.');
     if (session?.status === 'STOPPED') throw badRequest('SESSION_STOPPED', session.suspendReason === 'PIN_EXITED' ? SUSPENDED_MSG : 'Ujian dihentikan pengawas. Hubungi pengawas.');
+
+    // Every time a student opens the exam (first start or coming back to it) the supervisor's token is needed.
+    const { token } = z.object({ token: z.string().max(20).nullish() }).parse(req.body ?? {});
+    checkToken(`${st.id}:${id}`, exam.examToken, token);
 
     if (!session || session.status === 'NOT_STARTED') {
       const a = availability(exam, undefined, now);

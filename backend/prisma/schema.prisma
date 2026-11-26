@@ -219,6 +219,7 @@ model Exam {
   scoreMin              Float            @default(0)
   scoreMax              Float            @default(100)
   supervisorPin         String? // 6 digits, shown to the admin only; students type it to finish or unlock
+  examToken             String? // 6 characters, shown to the admin only; students type it every time they start or continue the exam
   status                ExamStatus       @default(DRAFT)
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt

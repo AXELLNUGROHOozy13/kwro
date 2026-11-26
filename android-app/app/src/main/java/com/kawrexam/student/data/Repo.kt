@@ -49,7 +49,7 @@ class Repo(private val api: Api, private val dao: AppDao, private val store: Tok
     suspend fun activeSessionId(): String? = store.activeSession()
     suspend fun setActiveSession(id: String?) = store.setActiveSession(id)
 
-    suspend fun start(examId: String): SessionDto = api.start(examId).also { cache(it) }
+    suspend fun start(examId: String, token: String): SessionDto = api.start(examId, StartReq(token)).also { cache(it) }
 
     /** Falls back to the cached copy when offline, so a restarted phone can keep going. */
     suspend fun session(id: String): SessionDto =

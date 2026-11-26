@@ -51,6 +51,7 @@ data class SessionDto(
 @Serializable data class ViolationsReq(val events: List<ViolationEvent>)
 @Serializable data class ViolationsResp(val warningCount: Int, val penaltyUntil: String? = null, val penaltyMinutes: Int = 0, val serverTime: String, val suspended: Boolean = false)
 @Serializable data class PinReq(val pin: String? = null)
+@Serializable data class StartReq(val token: String)
 @Serializable data class ResetResp(val warningCount: Int = 0, val penaltyUntil: String? = null)
 @Serializable data class HeartbeatResp(val status: String, val suspended: Boolean = false, val serverTime: String, val deadlineAt: String, val warningCount: Int = 0, val penaltyUntil: String? = null)
 @Serializable
@@ -73,7 +74,7 @@ interface Api {
     @POST("api/v1/auth/student/refresh") suspend fun refresh(@Body b: RefreshReq): AuthResp
     @POST("api/v1/student/change-password") suspend fun changePassword(@Body b: ChangePwReq): Response<Unit>
     @GET("api/v1/student/exams") suspend fun exams(): ExamListResp
-    @POST("api/v1/student/exams/{id}/start") suspend fun start(@Path("id") id: String): SessionDto
+    @POST("api/v1/student/exams/{id}/start") suspend fun start(@Path("id") id: String, @Body b: StartReq): SessionDto
     @GET("api/v1/student/sessions/{id}") suspend fun session(@Path("id") id: String): SessionDto
     @PUT("api/v1/student/sessions/{id}/answers") suspend fun answers(@Path("id") id: String, @Body b: AnswersReq): Response<Unit>
     @POST("api/v1/student/sessions/{id}/violations") suspend fun violations(@Path("id") id: String, @Body b: ViolationsReq): ViolationsResp

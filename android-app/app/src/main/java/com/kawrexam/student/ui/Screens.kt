@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -163,6 +164,7 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
     val batteryOk = remember(tick) { dnd.ignoresBatteryOptimization() }
     val vpnOk = ExamVpnService.active // observable: flips as soon as the student approves the system dialog
     var consent by remember { mutableStateOf(false) }
+    var token by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(exam.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Muted("Siapkan HP-mu sebelum mulai. Setelah ujian dimulai, pengaturan tidak bisa dibuka.")
@@ -204,8 +206,19 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
                 }
             }
         }
+        GlassCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Token ujian", fontWeight = FontWeight.SemiBold)
+                Muted("Minta token ke pengawas. Token dibutuhkan setiap kali kamu mulai atau melanjutkan ujian.")
+                OutlinedTextField(
+                    token, { token = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(12) }, label = { Text("Token") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, keyboardType = KeyboardType.Ascii),
+                )
+            }
+        }
         ErrorText(vm.error)
-        Button(onClick = { vm.startExam(exam) }, enabled = dndOk && vpnOk && consent && !vm.busy, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { vm.startExam(exam, token) }, enabled = dndOk && vpnOk && consent && token.isNotBlank() && !vm.busy, modifier = Modifier.fillMaxWidth()) {
             Text(if (vm.busy) "Memuat soal…" else "Mulai ujian")
         }
         OutlinedButton(onClick = { vm.backToExams() }, modifier = Modifier.fillMaxWidth()) { Text("Batal") }

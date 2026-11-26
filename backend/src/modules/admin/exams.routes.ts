@@ -8,6 +8,9 @@ import { finalize } from '../student/student.routes';
 import { adminId, idParam, ownExam } from './helpers';
 
 const newPin = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
+// No 0/O/1/I/L so a token read aloud or off a whiteboard is hard to mistype.
+const TOKEN_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const newToken = () => Array.from({ length: 6 }, () => TOKEN_CHARS[randomInt(0, TOKEN_CHARS.length)]).join('');
 
 export const examsRouter = Router();
 
@@ -62,7 +65,7 @@ examsRouter.post(
     const input = examFields.parse(req.body);
     checkRanges(input);
     const exam = await prisma.exam.create({
-      data: { ...input, supervisorPin: newPin(), adminId: adminId(req), startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) },
+      data: { ...input, supervisorPin: newPin(), examToken: newToken(), adminId: adminId(req), startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) },
     });
     await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'exam.create', targetType: 'Exam', targetId: exam.id, ip: req.ip });
     res.status(201).json(exam);
@@ -74,7 +77,9 @@ examsRouter.get(
   ah(async (req, res) => {
     const { id } = idParam.parse(req.params);
     const own = await ownExam(id, adminId(req));
-    if (!own.supervisorPin) await prisma.exam.update({ where: { id }, data: { supervisorPin: newPin() } });
+    if (!own.supervisorPin || !own.examToken) {
+      await prisma.exam.update({ where: { id }, data: { supervisorPin: own.supervisorPin ?? newPin(), examToken: own.examToken ?? newToken() } });
+    }
     const exam = await prisma.exam.findUniqueOrThrow({
       where: { id },
       include: {
@@ -313,6 +318,18 @@ examsRouter.delete(
     const result = await prisma.question.deleteMany({ where: { id: questionId, examId: id } });
     if (result.count === 0) throw notFound('Soal tidak ditemukan.');
     res.status(204).end();
+  }),
+);
+
+// ───────── Exam token ─────────
+examsRouter.post(
+  '/:id/regenerate-token',
+  ah(async (req, res) => {
+    const { id } = idParam.parse(req.params);
+    await ownExam(id, adminId(req));
+    const exam = await prisma.exam.update({ where: { id }, data: { examToken: newToken() } });
+    await audit({ actorType: 'ADMIN', actorId: adminId(req), action: 'exam.token.regenerate', targetType: 'Exam', targetId: id, ip: req.ip });
+    res.json({ examToken: exam.examToken });
   }),
 );
 

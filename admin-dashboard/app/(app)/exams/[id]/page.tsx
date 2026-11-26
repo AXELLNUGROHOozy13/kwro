@@ -15,7 +15,7 @@ interface Question { id: string; type: string; text: string; weight: number; exp
 interface Exam {
   id: string; title: string; description: string | null; durationMinutes: number; startsAt: string | null; endsAt: string | null;
   kkm: number | null; shuffleQuestions: boolean; shuffleOptions: boolean; resultVisibility: string; offlineMode: boolean;
-  scoreAdjustmentFactor: number; scoreMin: number; scoreMax: number; status: string; supervisorPin: string | null;
+  scoreAdjustmentFactor: number; scoreMin: number; scoreMax: number; status: string; supervisorPin: string | null; examToken: string | null;
   questions: Question[]; assignments: { classId: string }[]; _count: { sessions: number };
 }
 interface ClassRow { id: string; name: string; _count: { students: number } }
@@ -234,11 +234,17 @@ function SettingsTab({ exam, reload, onSaved, onError }: { exam: Exam; reload: (
   });
   const [busy, setBusy] = useState(false);
   const [pin, setPin] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const ended = exam.status === 'ENDED';
   const locked = exam._count.sessions > 0;
 
   async function regenPin() {
     try { setPin((await api<{ supervisorPin: string }>(`/exams/${exam.id}/regenerate-pin`, { method: 'POST' })).supervisorPin); }
+    catch (err) { onError(err); }
+  }
+
+  async function regenToken() {
+    try { setToken((await api<{ examToken: string }>(`/exams/${exam.id}/regenerate-token`, { method: 'POST' })).examToken); }
     catch (err) { onError(err); }
   }
 
@@ -272,6 +278,14 @@ function SettingsTab({ exam, reload, onSaved, onError }: { exam: Exam; reload: (
           <p className="muted text-sm">Siswa mengetik PIN ini untuk menyelesaikan ujian atau membuka layar terkunci.</p>
         </div>
         <button type="button" className="btn" disabled={ended} onClick={regenPin}>Buat PIN baru</button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="label">Token ujian</p>
+          <p className="num text-2xl font-bold tracking-widest">{token ?? exam.examToken ?? '–'}</p>
+          <p className="muted text-sm">Umumkan ke siswa di ruangan. Siswa mengetik token ini setiap kali mulai atau melanjutkan ujian.</p>
+        </div>
+        <button type="button" className="btn" disabled={ended} onClick={regenToken}>Buat token baru</button>
       </div>
       <fieldset disabled={ended} className="grid gap-5">
         <div>
