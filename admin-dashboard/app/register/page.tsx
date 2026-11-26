@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { register } from '@/lib/api';
+import { Seal } from '@/components/Seal';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -28,8 +29,9 @@ export default function RegisterPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
       <form onSubmit={onSubmit} className="glass w-full max-w-md p-6 grid gap-4" aria-labelledby="title">
-        <div>
-          <h1 id="title" className="text-2xl font-bold">Daftar administrator</h1>
+        <div className="grid gap-3 justify-items-center text-center pb-1">
+          <Seal large />
+          <h1 id="title" className="text-2xl font-semibold">Daftar administrator</h1>
           <p className="muted text-sm">Kode aktivasi didapat dari developer KAWREXAM.</p>
         </div>
         <div>

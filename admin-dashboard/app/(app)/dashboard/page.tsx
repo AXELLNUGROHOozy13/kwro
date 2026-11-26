@@ -58,7 +58,7 @@ export default function Dashboard() {
         {cards.map(([label, value]) => (
           <div key={label} className="glass p-4">
             <p className="muted text-sm">{label}</p>
-            <p className="text-3xl font-bold num">{value}</p>
+            <p className="stat-value num">{value}</p>
           </div>
         ))}
       </section>

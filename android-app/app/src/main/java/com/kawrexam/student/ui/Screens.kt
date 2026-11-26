@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -99,9 +100,10 @@ fun LoginScreen(vm: MainViewModel) {
     var code by remember { mutableStateOf("") }
     var pw by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
-        Text("KAWREXAM", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        BrandBlock()
+        Spacer(Modifier.height(24.dp))
         Muted("Masuk dengan kode siswa dari pengawas.")
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(10.dp))
         GlassCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -264,8 +266,7 @@ fun ExamScreen(vm: MainViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Soal ${vm.index + 1} dari $n", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
-                Text(mmss(left), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge,
-                    color = if (left < 300_000) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+                TimerPill(mmss(left), low = left < 300_000)
             }
             LinearProgressIndicator(progress = { if (n == 0) 0f else answered / n.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
             GlassCard(Modifier.weight(1f).fillMaxWidth()) {
@@ -282,7 +283,7 @@ fun ExamScreen(vm: MainViewModel) {
                         done -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
                         else -> MaterialTheme.colorScheme.surface
                     }
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(bg).clickable { vm.goTo(i) }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(bg).clickable { vm.goTo(i) }, contentAlignment = Alignment.Center) {
                         Text("${i + 1}", color = if (i == vm.index) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
                     }
                 }
@@ -360,19 +361,11 @@ private fun QuestionBody(vm: MainViewModel, q: QuestionDto) {
     val picked = vm.answers[q.id]?.optionIds ?: emptySet()
     when (q.type) {
         "MULTIPLE_CHOICE", "TRUE_FALSE" -> q.options.forEach { o ->
-            Row(Modifier.fillMaxWidth().clickable { vm.selectOption(q, o.id) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = o.id in picked, onClick = { vm.selectOption(q, o.id) })
-                Text(o.text, modifier = Modifier.weight(1f))
-            }
+            OptionCard(o.text, selected = o.id in picked, multi = false) { vm.selectOption(q, o.id) }
         }
         "MULTIPLE_SELECT" -> {
             Muted("Pilih semua jawaban yang benar.")
-            q.options.forEach { o ->
-                Row(Modifier.fillMaxWidth().clickable { vm.selectOption(q, o.id) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = o.id in picked, onCheckedChange = { vm.selectOption(q, o.id) })
-                    Text(o.text, modifier = Modifier.weight(1f))
-                }
-            }
+            q.options.forEach { o -> OptionCard(o.text, selected = o.id in picked, multi = true) { vm.selectOption(q, o.id) } }
         }
         else -> OutlinedTextField(
             value = vm.answers[q.id]?.text.orEmpty(), onValueChange = { vm.setText(q, it) },

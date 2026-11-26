@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { completeMfa, login } from '@/lib/api';
+import { Seal } from '@/components/Seal';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -36,9 +37,12 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
       <form onSubmit={onSubmit} className="glass w-full max-w-sm p-6 grid gap-4" aria-labelledby="title">
-        <div>
-          <h1 id="title" className="text-2xl font-bold">KAWREXAM</h1>
-          <p className="muted text-sm">Masuk sebagai administrator sekolah</p>
+        <div className="grid gap-3 justify-items-center text-center pb-1">
+          <Seal large />
+          <div>
+            <h1 id="title" className="text-3xl font-semibold">KAWREXAM</h1>
+            <p className="muted text-sm">Masuk sebagai administrator sekolah</p>
+          </div>
         </div>
         {mfaToken ? (
           <div>

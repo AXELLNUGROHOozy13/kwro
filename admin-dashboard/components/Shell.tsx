@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { ApiError, api, logout } from '@/lib/api';
+import { Seal } from '@/components/Seal';
 
 export interface Me { id: string; email: string; name: string; schoolName: string }
 const MeContext = createContext<Me | null>(null);
@@ -43,9 +44,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="shell">
         <aside className="sidebar">
           <nav className="glass" aria-label="Menu utama">
-            <div className="brand px-2 pb-3">
-              <p className="font-bold text-lg">KAWREXAM</p>
-              <p className="muted text-sm">{me.schoolName}</p>
+            <div className="brand">
+              <Seal />
+              <div className="min-w-0">
+                <p className="brand-name leading-tight">KAWREXAM</p>
+                <p className="muted text-sm truncate">{me.schoolName}</p>
+              </div>
             </div>
             {NAV.map((n) => (
               <Link key={n.href} href={n.href} className="nav-link" aria-current={path === n.href || path.startsWith(n.href + '/') ? 'page' : undefined}>
