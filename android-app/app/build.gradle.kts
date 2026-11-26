@@ -14,8 +14,8 @@ android {
         applicationId = "com.kawrexam.student"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // Override with: gradle assembleDebug -PapiBaseUrl=https://your-backend
         val api = (project.findProperty("apiBaseUrl") as String?) ?: "https://kwr.up.railway.app"
         buildConfigField("String", "API_BASE_URL", "\"$api\"")

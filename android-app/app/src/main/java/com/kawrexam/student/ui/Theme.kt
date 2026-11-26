@@ -1,10 +1,10 @@
 package com.kawrexam.student.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,123 +28,174 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kawrexam.student.R
 
 /*
- * KAWREXAM look: institutional blue on frosted glass, one brass accent (the seal). Headings are serif for a formal
- * register, body text is the system sans. Same tokens as the admin dashboard so the two feel like one product.
+ * KAWREXAM look: light "liquid glass". Soft sky-to-lavender backdrop, white frosted cards, one violet brand colour
+ * with a deep-indigo gradient for primary actions. The logo is the open book wrapped by an orbit ring.
  */
-val Brass = Color(0xFF9A7420)
-private val BrassDark = Color(0xFFD4AD57)
+val Violet = Color(0xFF6D4BE0)
+val VioletDeep = Color(0xFF3B22A8)
+val VioletSoft = Color(0xFFE9E3FF)
+val Ink = Color(0xFF1B1747)
+val InkSoft = Color(0xFF5E5A86)
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF1B4F8A), onPrimary = Color.White,
-    primaryContainer = Color(0xFFD3E2F4), onPrimaryContainer = Color(0xFF0C2340),
-    secondary = Color(0xFF123A6B), tertiary = Brass,
-    background = Color(0xFFE6ECF3), surface = Color.White,
-    onBackground = Color(0xFF0C2340), onSurface = Color(0xFF0C2340), onSurfaceVariant = Color(0xFF51647B),
-    error = Color(0xFFA52A21), outline = Color(0x240C2340),
-)
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7FB2EA), onPrimary = Color(0xFF06213F),
-    primaryContainer = Color(0xFF1B3A5E), onPrimaryContainer = Color(0xFFE6EDF7),
-    secondary = Color(0xFF5B95D4), tertiary = BrassDark,
-    background = Color(0xFF07111F), surface = Color(0xFF12243E),
-    onBackground = Color(0xFFE6EDF7), onSurface = Color(0xFFE6EDF7), onSurfaceVariant = Color(0xFF9DB0C8),
-    error = Color(0xFFFF8A80), outline = Color(0x2E8FB6E6),
+    primary = Color(0xFF5436CF), onPrimary = Color.White,
+    primaryContainer = Color(0xFFE6E0FF), onPrimaryContainer = Ink,
+    secondary = Violet, tertiary = Color(0xFFF472B6),
+    background = Color(0xFFEEF0FF), surface = Color.White,
+    onBackground = Ink, onSurface = Ink, onSurfaceVariant = InkSoft,
+    error = Color(0xFFD93B4E), outline = Color(0x2E6D4BE0),
 )
 
 private val base = Typography()
+private val Sans = FontFamily.SansSerif
 private val AppTypography = Typography(
-    headlineLarge = base.headlineLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
-    headlineMedium = base.headlineMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
-    headlineSmall = base.headlineSmall.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
-    titleLarge = base.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
-    displayMedium = base.displayMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold),
-    bodyLarge = base.bodyLarge.copy(fontSize = 17.sp, lineHeight = 26.sp), // exam questions: comfortable to read for a long time
+    displayMedium = base.displayMedium.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
+    headlineLarge = base.headlineLarge.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
+    headlineMedium = base.headlineMedium.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
+    headlineSmall = base.headlineSmall.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
+    titleLarge = base.titleLarge.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
+    titleMedium = base.titleMedium.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
+    bodyLarge = base.bodyLarge.copy(fontFamily = Sans, fontSize = 17.sp, lineHeight = 26.sp), // exam questions: easy to read for long
+    bodyMedium = base.bodyMedium.copy(fontFamily = Sans),
+    labelLarge = base.labelLarge.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
 )
 
 private val AppShapes = Shapes(
-    small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(20.dp),
+    small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(16.dp), large = RoundedCornerShape(24.dp),
 )
 
 @Composable
 fun KawrexamTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
-        typography = AppTypography, shapes = AppShapes, content = content,
-    )
+    MaterialTheme(colorScheme = LightColors, typography = AppTypography, shapes = AppShapes, content = content)
 }
 
-/** Soft blue light from the top corner and a faint brass glow below: something for the glass panels to sit on. */
+/** Sky-blue haze at the top fading into lavender, with a violet glow at the bottom corner. */
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val base = MaterialTheme.colorScheme.background
-    val glowA = if (dark) Color(0x334682D2) else Color(0x381B4F8A)
-    val glowB = if (dark) Color(0x14D4AD57) else Color(0x1F9A7420)
     Box(
-        Modifier.fillMaxSize().background(base)
+        Modifier.fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFD9E5FF), Color(0xFFEAE9FF), Color(0xFFF3F0FF))))
             .drawBehind {
-                drawRect(Brush.radialGradient(listOf(glowA, Color.Transparent), center = Offset(size.width * 0.1f, -size.height * 0.02f), radius = size.width * 1.1f))
-                drawRect(Brush.radialGradient(listOf(glowB, Color.Transparent), center = Offset(size.width * 1.05f, size.height * 1.02f), radius = size.width * 1.0f))
+                drawRect(Brush.radialGradient(listOf(Color(0x55FFFFFF), Color.Transparent), center = Offset(size.width * 0.2f, size.height * 0.04f), radius = size.width * 0.8f))
+                drawRect(Brush.radialGradient(listOf(Color(0x33835CF0), Color.Transparent), center = Offset(size.width * 1.05f, size.height * 1.0f), radius = size.width * 1.0f))
             }
             .safeDrawingPadding(),
     ) { content() }
 }
 
-/** Translucent panel with a lit top edge. One flat layer (no blur) keeps older phones smooth. */
+/** Frosted white panel with a lit rim. One flat layer (no blur) keeps older phones smooth. */
 @Composable
 fun GlassCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val rim = Brush.verticalGradient(
-        if (dark) listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.05f))
-        else listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.35f)),
-    )
+    val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0x336D4BE0)))
     Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = if (dark) 0.62f else 0.74f)),
+        modifier = modifier.shadow(10.dp, RoundedCornerShape(24.dp), ambientColor = Color(0x226D4BE0), spotColor = Color(0x226D4BE0)),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.72f)),
         border = BorderStroke(1.dp, rim),
         content = content,
     )
 }
 
-/** The KAWREXAM seal: a monogram inside a brass ring. Decorative. */
+/** The KAWREXAM mark (open book + orbit ring + spark), no background. */
 @Composable
-fun Seal(size: androidx.compose.ui.unit.Dp = 64.dp) {
-    val ring = MaterialTheme.colorScheme.tertiary
-    Box(
-        Modifier.size(size).border(2.dp, ring, CircleShape).padding(4.dp).clip(CircleShape)
-            .background(Brush.radialGradient(listOf(Color(0xFF3A77BD), Color(0xFF0F3262)))),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("KRX", color = Color.White, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.27f).sp, letterSpacing = 1.sp)
-    }
+fun LogoMark(size: Dp = 56.dp) {
+    Image(painterResource(R.drawable.ic_kawrexam_logo), contentDescription = "KAWREXAM", modifier = Modifier.size(size))
 }
 
-/** Seal, name, and one line of what this is. Used on the sign-in screen. */
+/** The logo on its dark rounded app-icon tile. */
+@Composable
+fun AppIconTile(size: Dp = 88.dp) {
+    Box(
+        Modifier.size(size).shadow(18.dp, RoundedCornerShape(size * 0.26f), ambientColor = Color(0x556D4BE0), spotColor = Color(0x556D4BE0))
+            .clip(RoundedCornerShape(size * 0.26f))
+            .background(Brush.linearGradient(listOf(Color(0xFF2E2680), Color(0xFF15122F))))
+            .border(1.dp, Color(0x66A78BFA), RoundedCornerShape(size * 0.26f)),
+        contentAlignment = Alignment.Center,
+    ) { LogoMark(size * 0.72f) }
+}
+
+/** "KAWR" in ink and "EXAM" in violet, as in the brand lockup. */
+@Composable
+fun Wordmark(fontSize: Int = 24) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = Ink)) { append("KAWR") }
+            withStyle(SpanStyle(color = Violet)) { append("EXAM") }
+        },
+        fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = fontSize.sp, letterSpacing = 0.5.sp,
+    )
+}
+
+/** Logo, name, and the tagline. Used on the sign-in screen. */
 @Composable
 fun BrandBlock() {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Seal()
-        Spacer(Modifier.height(12.dp))
-        Text("KAWREXAM", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
-        Text("Sistem ujian sekolah", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        AppIconTile()
+        Spacer(Modifier.height(14.dp))
+        Wordmark(30)
+        Text("Ujian Online, Lebih Mudah.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    }
+}
+
+/** Deep-indigo gradient pill: the primary call to action. */
+@Composable
+fun GradientButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val shape = RoundedCornerShape(50)
+    val bg = if (enabled) Brush.horizontalGradient(listOf(Color(0xFF6A4BE6), Color(0xFF3B22A8))) else Brush.horizontalGradient(listOf(Color(0xFFC9C4E6), Color(0xFFC9C4E6)))
+    Box(
+        modifier.defaultMinSize(minHeight = 48.dp)
+            .shadow(if (enabled) 10.dp else 0.dp, shape, ambientColor = Color(0x663B22A8), spotColor = Color(0x663B22A8))
+            .clip(shape).background(bg).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 22.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1) }
+}
+
+/** White frosted circle button for header actions. */
+@Composable
+fun GlassCircleButton(glyph: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).shadow(6.dp, CircleShape, ambientColor = Color(0x226D4BE0), spotColor = Color(0x226D4BE0))
+            .clip(CircleShape).background(Color.White.copy(alpha = 0.8f)).border(1.dp, Color.White, CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text(glyph, color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+}
+
+/** Small stat tile: coloured icon square, label, big number. */
+@Composable
+fun StatCard(glyph: String, tint: Color, label: String, value: String, modifier: Modifier = Modifier) {
+    GlassCard(modifier) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(tint.copy(alpha = 0.75f), tint))), contentAlignment = Alignment.Center) {
+                Text(glyph, fontSize = 22.sp, color = Color.White)
+            }
+            Column {
+                Text(label, color = InkSoft, fontSize = 12.sp, maxLines = 1)
+                Text(value, color = Ink, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
     }
 }
 
@@ -152,10 +203,10 @@ fun BrandBlock() {
 @Composable
 fun OptionCard(text: String, selected: Boolean, multi: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(16.dp)
     Row(
         Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).clip(shape)
-            .background(if (selected) scheme.primaryContainer.copy(alpha = 0.75f) else scheme.surface.copy(alpha = 0.55f))
+            .background(if (selected) scheme.primaryContainer else Color.White.copy(alpha = 0.7f))
             .border(if (selected) 2.dp else 1.dp, if (selected) scheme.primary else scheme.outline, shape)
             .clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -166,11 +217,11 @@ fun OptionCard(text: String, selected: Boolean, multi: Boolean, onClick: () -> U
     }
 }
 
-/** Countdown pill: calm blue normally, red in the last five minutes. */
+/** Countdown pill: violet normally, red in the last five minutes. */
 @Composable
 fun TimerPill(text: String, low: Boolean) {
     val c = if (low) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Box(Modifier.clip(RoundedCornerShape(10.dp)).background(c.copy(alpha = 0.14f)).padding(horizontal = 12.dp, vertical = 4.dp)) {
-        Text(text, color = c, style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Default, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum"))
+    Box(Modifier.clip(RoundedCornerShape(50)).background(c.copy(alpha = 0.14f)).padding(horizontal = 14.dp, vertical = 5.dp)) {
+        Text(text, color = c, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold, fontFeatureSettings = "tnum"))
     }
 }
