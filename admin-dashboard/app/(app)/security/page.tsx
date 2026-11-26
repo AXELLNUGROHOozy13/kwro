@@ -8,7 +8,6 @@ interface Status { mfaEnabled: boolean; recoveryCodesLeft: number }
 
 // Two-step verification (authenticator app) for the administrator account.
 export default function SecurityPage() {
-  const guard = useApiGuard();
   const [st, setSt] = useState<Status | null>(null);
   const [setup, setSetup] = useState<{ secret: string; otpauthUri: string } | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null);
@@ -16,17 +15,18 @@ export default function SecurityPage() {
   const [pw, setPw] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const guard = useApiGuard(setMsg);
 
   const load = useCallback(() => { api<Status>('/security').then(setSt).catch(guard); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   useEffect(load, [load]);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setMsg('');
-    try { await fn(); } catch (e) { setMsg(e instanceof Error ? e.message : 'Gagal.'); guard(e); }
+    try { await fn(); } catch (e) { guard(e); }
     setBusy(false);
   }
 
-  if (!st) return <p className="muted">Memuat…</p>;
+  if (!st) return <p className="muted">{msg || 'Memuat…'}</p>;
   return (
     <div className="grid gap-4" style={{ maxWidth: '40rem' }}>
       <h1 className="text-2xl font-bold">Keamanan akun</h1>
