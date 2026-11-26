@@ -76,6 +76,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // Exam state
     var session by mutableStateOf<SessionDto?>(null); private set
     val answers = mutableStateMapOf<String, AnswerState>()
+    /** Questions the student marked to re-check ("Ditandai"). Local only: a study aid, never sent or scored. */
+    val flagged = mutableStateMapOf<String, Boolean>()
     var index by mutableIntStateOf(0); private set
     var nowMs by mutableLongStateOf(0L); private set
     var deadlineMs by mutableLongStateOf(0L); private set
@@ -201,7 +203,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun enterExam(dto: SessionDto) {
-        answers.clear(); answers.putAll(repo.mergedAnswers(dto))
+        answers.clear(); answers.putAll(repo.mergedAnswers(dto)); flagged.clear()
         session = dto; index = 0; error = null; warning = null; finishing = false; wasPinned = false
         anchor(dto.serverTime); deadlineMs = msOf(dto.deadlineAt); nowMs = serverNow()
         warningCount = dto.warningCount; penaltyUntilMs = dto.penaltyUntil?.let(::msOf) ?: 0L
@@ -302,6 +304,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val cur = answers[q.id]?.optionIds ?: emptySet()
         val next = if (q.type == "MULTIPLE_SELECT") (if (optionId in cur) cur - optionId else cur + optionId) else setOf(optionId)
         answers[q.id] = AnswerState(next, null)
+        viewModelScope.launch { persist(q.id) }
+    }
+
+    fun toggleFlag(qid: String) { if (flagged[qid] == true) flagged.remove(qid) else flagged[qid] = true }
+
+    /** Eraser button: empties the answer. Saved like any other change, so the server sees it as unanswered again. */
+    fun clearAnswer(q: QuestionDto) {
+        if (answers[q.id] == null) return
+        textJobs[q.id]?.cancel()
+        answers[q.id] = AnswerState(emptySet(), null)
         viewModelScope.launch { persist(q.id) }
     }
 

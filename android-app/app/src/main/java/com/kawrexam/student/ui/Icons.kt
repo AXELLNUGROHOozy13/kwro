@@ -19,7 +19,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** Every icon in the app is drawn here on a 24-unit grid: no emoji, no icon font, no image files. */
-enum class Ic { Home, Clipboard, Clock, Gear, Check, Close, Dot, Trophy, Grid, Megaphone, Folder, Lock, Refresh, Logout, Play, Arrow, Chevron, Shield, Alert, Calc }
+enum class Ic { Home, Clipboard, Clock, Gear, Check, Close, Dot, Trophy, Grid, Megaphone, Folder, Lock, Refresh, Logout, Play, Arrow, Chevron, Shield, Alert, Calc, Back, Flag, Save, Eraser }
 
 @Composable
 fun Icon24(kind: Ic, tint: Color, size: Dp = 24.dp, filled: Boolean = false, onTint: Color = Color.White) {
@@ -117,6 +117,21 @@ private fun DrawScope.drawIcon(kind: Ic, c: Color, on: Color, filled: Boolean) {
             path(col = if (filled) on else c) { P(this, 8.5f, 12f, true); P(this, 11f, 14.5f); P(this, 15.5f, 9.5f) }
         }
         Ic.Alert -> { line(12f, 5.5f, 12f, 14f, w = 2.6f * u); drawCircle(c, 1.7f * u, o(12f, 18.6f)) }
+        Ic.Back -> { line(19.5f, 12f, 4f, 12f); path { P(this, 10.5f, 6f, true); P(this, 4.5f, 12f); P(this, 10.5f, 18f) } }
+        Ic.Flag -> {
+            line(6f, 3.5f, 6f, 21f)
+            path(fill = true) { P(this, 6f, 4.5f, true); P(this, 19f, 4.5f); P(this, 15.5f, 9f); P(this, 19f, 13.5f); P(this, 6f, 13.5f); close() }
+        }
+        Ic.Save -> {
+            rrect(4f, 4f, 16f, 16f, 3f, fill = filled)
+            val lc = if (filled) on else c
+            rrect(8f, 4f, 7f, 5f, 1f, col = lc)
+            rrect(7.5f, 13f, 9f, 7f, 1.5f, col = lc)
+        }
+        Ic.Eraser -> {
+            path { P(this, 9.5f, 19.5f, true); P(this, 4.5f, 14.5f); P(this, 13f, 6f); P(this, 19f, 12f); P(this, 11.5f, 19.5f); close() }
+            line(9f, 19.5f, 20f, 19.5f); line(8.2f, 10.8f, 14.2f, 16.8f)
+        }
         Ic.Calc -> {
             val w = 1.9f * u
             line(4.5f, 7f, 9.5f, 7f, w = w); line(7f, 4.5f, 7f, 9.5f, w = w)          // +

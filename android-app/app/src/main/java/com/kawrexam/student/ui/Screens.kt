@@ -68,11 +68,13 @@ import java.util.Locale
 
 private val dateFmt = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale("id", "ID")).withZone(ZoneId.systemDefault())
 internal fun fmtIso(iso: String?): String = iso?.let { runCatching { dateFmt.format(Instant.parse(it)) }.getOrNull() } ?: "-"
-private fun mmss(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%02d:%02d".format(s / 60, s % 60) }
-private fun isAnswered(a: AnswerState?): Boolean = a != null && (a.optionIds.isNotEmpty() || !a.text.isNullOrBlank())
+internal fun mmss(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%02d:%02d".format(s / 60, s % 60) }
+internal fun isAnswered(a: AnswerState?): Boolean = a != null && (a.optionIds.isNotEmpty() || !a.text.isNullOrBlank())
 
 @Composable
 fun AppRoot(vm: MainViewModel, dnd: DndManager) {
+    // The exam screen paints its own full-bleed background and handles system-bar insets itself.
+    if (vm.screen == Screen.InExam) { ExamScreen(vm); return }
     GlassBackground {
         when (val s = vm.screen) {
             Screen.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
@@ -210,144 +212,6 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
     }
 }
 
-// ───────── Exam ─────────
-@Composable
-fun ExamScreen(vm: MainViewModel) {
-    val s = vm.session ?: return
-    val n = s.questions.size
-    val q = s.questions.getOrNull(vm.index) ?: return
-    BackHandler(enabled = true) { } // the back button never leaves an exam
-    val ctx = LocalContext.current
-    val left = (vm.deadlineMs - vm.nowMs).coerceAtLeast(0)
-    val answered = s.questions.count { isAnswered(vm.answers[it.id]) }
-    val battery = remember(vm.nowMs / 30_000) { ctx.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1 }
-    val clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-    var confirm by remember { mutableStateOf(false) }
-    var finishPin by remember { mutableStateOf("") }
-    var unlockPin by remember { mutableStateOf("") }
-
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(s.title, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Muted(vm.student?.name ?: "")
-                }
-                Muted("$clock  ·  ${if (battery >= 0) "$battery%" else "-"}  ·  ${if (vm.online) "Online" else "Offline"}")
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Soal ${vm.index + 1} dari $n", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.weight(1f))
-                TimerPill(mmss(left), low = left < 300_000)
-            }
-            LinearProgressIndicator(progress = { if (n == 0) 0f else answered / n.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp))
-            GlassCard(Modifier.weight(1f).fillMaxWidth()) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuestionBody(vm, q)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(s.questions) { i, qq ->
-                    val done = isAnswered(vm.answers[qq.id])
-                    val bg = when {
-                        i == vm.index -> MaterialTheme.colorScheme.primary
-                        done -> MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                        else -> MaterialTheme.colorScheme.surface
-                    }
-                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(bg).clickable { vm.goTo(i) }, contentAlignment = Alignment.Center) {
-                        Text("${i + 1}", color = if (i == vm.index) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { vm.goTo(vm.index - 1) }, enabled = vm.index > 0, modifier = Modifier.weight(1f)) { Text("Sebelumnya") }
-                OutlinedButton(onClick = { vm.goTo(vm.index + 1) }, enabled = vm.index < n - 1, modifier = Modifier.weight(1f)) { Text("Selanjutnya") }
-                Button(onClick = { confirm = true }, modifier = Modifier.weight(1f)) { Text("Selesai") }
-            }
-        }
-
-        if (vm.penaltyLeftMs() > 0) {
-            Box(Modifier.fillMaxSize().background(Color(0xF01B1747)).clickable(enabled = true) { }, contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                    Text("Layar terkunci", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                    Text(mmss(vm.penaltyLeftMs()), color = Color(0xFFB9A4FF), style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold)
-                    Text("Pelanggaran ke-${vm.warningCount}. Waktu ujian tetap berjalan.", color = Color.White, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(16.dp))
-                    Text("Atau minta PIN ke pengawas untuk membuka kunci:", color = Color.White, textAlign = TextAlign.Center)
-                    OutlinedTextField(
-                        unlockPin, { unlockPin = it.filter(Char::isDigit).take(12) }, label = { Text("PIN pengawas") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = { vm.unlock(unlockPin); unlockPin = "" }, enabled = unlockPin.isNotEmpty() && !vm.unlocking) { Text("Buka kunci") }
-                }
-            }
-        }
-        if (vm.finishing) {
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)).clickable(enabled = true) { }, contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
-                    Text("Mengirim jawaban…", color = Color.White)
-                }
-            }
-        }
-    }
-
-    vm.warning?.let { w ->
-        TrackedAlertDialog(vm, onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
-            confirmButton = { TextButton(onClick = { vm.warning = null }) { Text("Mengerti") } })
-    }
-    vm.error?.let { e ->
-        TrackedAlertDialog(vm, onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
-            confirmButton = { TextButton(onClick = { vm.error = null }) { Text("OK") } })
-    }
-    if (confirm) {
-        val blank = n - answered
-        TrackedAlertDialog(
-            vm, onDismissRequest = { confirm = false; finishPin = "" }, title = { Text(if (blank > 0) "Belum bisa selesai" else "Selesaikan ujian?") },
-            text = {
-                if (blank > 0) Text("Masih ada $blank soal belum dijawab. Jawab semua soal dulu.")
-                else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Semua soal sudah dijawab. Masukkan PIN dari pengawas. Setelah selesai, jawaban tidak bisa diubah.")
-                    OutlinedTextField(
-                        finishPin, { finishPin = it.filter(Char::isDigit).take(12) }, label = { Text("PIN pengawas") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    )
-                }
-            },
-            confirmButton = {
-                if (blank == 0) TextButton(enabled = finishPin.isNotEmpty(), onClick = { val p = finishPin; confirm = false; finishPin = ""; vm.submit(p) }) { Text("Selesai") }
-            },
-            dismissButton = { TextButton(onClick = { confirm = false; finishPin = "" }) { Text(if (blank > 0) "Kembali ke soal" else "Batal") } },
-        )
-    }
-}
-
-@Composable
-private fun QuestionBody(vm: MainViewModel, q: QuestionDto) {
-    Text(q.text, style = MaterialTheme.typography.bodyLarge)
-    if (q.imageUrl != null) Muted("Soal ini punya gambar, tetapi versi aplikasi ini belum bisa menampilkannya. Tanyakan ke pengawas.")
-    val picked = vm.answers[q.id]?.optionIds ?: emptySet()
-    when (q.type) {
-        "MULTIPLE_CHOICE", "TRUE_FALSE" -> q.options.forEach { o ->
-            OptionCard(o.text, selected = o.id in picked, multi = false) { vm.selectOption(q, o.id) }
-        }
-        "MULTIPLE_SELECT" -> {
-            Muted("Pilih semua jawaban yang benar.")
-            q.options.forEach { o -> OptionCard(o.text, selected = o.id in picked, multi = true) { vm.selectOption(q, o.id) } }
-        }
-        else -> OutlinedTextField(
-            value = vm.answers[q.id]?.text.orEmpty(), onValueChange = { vm.setText(q, it) },
-            label = { Text(if (q.type == "ESSAY") "Jawaban uraian" else "Jawaban singkat") },
-            minLines = if (q.type == "ESSAY") 6 else 1, modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
 // ───────── Result ─────────
 @Composable
 fun ResultScreen(vm: MainViewModel, s: Screen.Result) {
@@ -379,7 +243,7 @@ fun ResultScreen(vm: MainViewModel, s: Screen.Result) {
  * without this, reading a dialog for more than 3 seconds would be reported as leaving the exam.
  */
 @Composable
-private fun TrackedAlertDialog(
+internal fun TrackedAlertDialog(
     vm: MainViewModel,
     onDismissRequest: () -> Unit,
     title: @Composable () -> Unit,
