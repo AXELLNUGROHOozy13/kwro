@@ -90,6 +90,35 @@ studentRouter.get(
   }),
 );
 
+// ───────── History ─────────
+// Finished exams of this student, newest first. Scores follow the exam's own visibility setting, same as the submit response.
+studentRouter.get(
+  '/history',
+  ah(async (req, res) => {
+    const s = await requirePasswordChanged(req);
+    const rows = await prisma.examSession.findMany({
+      where: { studentId: s.id, status: { in: ['SUBMITTED', 'FORCE_SUBMITTED'] } },
+      orderBy: { finishedAt: 'desc' },
+      take: 100,
+      include: { result: true, exam: { select: { title: true, durationMinutes: true, kkm: true, resultVisibility: true } } },
+    });
+    res.json({
+      data: rows.map((r) => {
+        const v = r.exam.resultVisibility;
+        const show = v !== 'HIDDEN' && !!r.result;
+        return {
+          sessionId: r.id, title: r.exam.title, durationMinutes: r.exam.durationMinutes,
+          finishedAt: r.finishedAt?.toISOString() ?? null, forced: r.status === 'FORCE_SUBMITTED',
+          visible: show,
+          ...(show ? { finalScore: r.result!.finalScore } : {}),
+          ...(show && (v === 'SCORE_AND_KKM' || v === 'FULL_DETAIL') ? { passed: r.result!.passed, kkm: r.exam.kkm } : {}),
+          ...(show && v === 'FULL_DETAIL' ? { correct: r.result!.correctCount, incorrect: r.result!.incorrectCount, unanswered: r.result!.unansweredCount } : {}),
+        };
+      }),
+    });
+  }),
+);
+
 // ───────── Session helpers ─────────
 async function latestAnswers(sessionId: string): Promise<Map<string, GradeAnswer>> {
   const rows = await prisma.studentAnswer.findMany({ where: { sessionId }, orderBy: [{ answeredAt: 'desc' }, { receivedAt: 'desc' }] });

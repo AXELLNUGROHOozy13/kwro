@@ -59,7 +59,16 @@ data class ResultDto(
     val kkm: Double? = null, val correct: Int? = null, val incorrect: Int? = null, val unanswered: Int? = null,
 )
 
+@Serializable
+data class HistoryItem(
+    val sessionId: String, val title: String, val durationMinutes: Int, val finishedAt: String? = null, val forced: Boolean = false,
+    val visible: Boolean = false, val finalScore: Double? = null, val passed: Boolean? = null, val kkm: Double? = null,
+    val correct: Int? = null, val incorrect: Int? = null, val unanswered: Int? = null,
+)
+@Serializable data class HistoryResp(val data: List<HistoryItem>)
+
 interface Api {
+    @GET("api/v1/student/history") suspend fun history(): HistoryResp
     @POST("api/v1/auth/student/login") suspend fun login(@Body b: LoginReq): AuthResp
     @POST("api/v1/auth/student/refresh") suspend fun refresh(@Body b: RefreshReq): AuthResp
     @POST("api/v1/student/change-password") suspend fun changePassword(@Body b: ChangePwReq): Response<Unit>

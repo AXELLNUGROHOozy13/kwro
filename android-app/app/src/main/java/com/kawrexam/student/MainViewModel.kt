@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kawrexam.student.data.AnswerState
 import com.kawrexam.student.data.ExamItem
+import com.kawrexam.student.data.HistoryItem
 import com.kawrexam.student.data.QuestionDto
 import com.kawrexam.student.data.ResultDto
 import com.kawrexam.student.data.SessionDto
@@ -64,6 +65,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var screen by mutableStateOf<Screen>(Screen.Loading); private set
     var student by mutableStateOf<StudentInfo?>(null); private set
     var exams by mutableStateOf<List<ExamItem>>(emptyList()); private set
+    var history by mutableStateOf<List<HistoryItem>>(emptyList()); private set
+    var historyLoaded by mutableStateOf(false); private set
+    var historyBusy by mutableStateOf(false); private set
+    /** Bottom-bar tab shown while the student is on the exam list. */
+    var tab by mutableStateOf(0)
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null)
 
@@ -159,15 +165,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshExams() = launchBusy { loadExams() }
+    /** Quiet by default: the home stats load it in the background, so a failure there must not pop an error. */
+    fun loadHistory(showError: Boolean = false) {
+        viewModelScope.launch {
+            historyBusy = true
+            try { history = repo.history().data; historyLoaded = true }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (showError) error = friendly(e) }
+            finally { historyBusy = false }
+        }
+    }
+    fun changePasswordInSettings(current: String, new: String, onDone: () -> Unit) = launchBusy {
+        repo.changePassword(current, new)
+        onDone()
+    }
     private suspend fun loadExams() { val r = repo.exams(); anchor(r.serverTime); exams = r.data }
 
     fun openChecklist(exam: ExamItem) { error = null; screen = Screen.Checklist(exam) }
-    fun backToExams() { error = null; ExamVpnService.stop(getApplication()); screen = Screen.Exams; refreshExams() }
+    fun backToExams() { error = null; historyLoaded = false; ExamVpnService.stop(getApplication()); screen = Screen.Exams; refreshExams() }
     fun backToLogin() { error = null; student = null; screen = Screen.Login }
     fun logout() { viewModelScope.launch { doLogout() } }
     private suspend fun doLogout() {
         loop?.cancel(); releaseGuards(); repo.logout()
-        session = null; student = null; exams = emptyList(); screen = Screen.Login
+        session = null; student = null; exams = emptyList(); history = emptyList(); historyLoaded = false; tab = 0; screen = Screen.Login
     }
 
     /** Do Not Disturb and the network lock only exist while an exam is open. */

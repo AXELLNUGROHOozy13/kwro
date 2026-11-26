@@ -45,6 +45,7 @@ class Repo(private val api: Api, private val dao: AppDao, private val store: Tok
 
     // ── Exams ──
     suspend fun exams(): ExamListResp = api.exams()
+    suspend fun history(): HistoryResp = api.history()
     suspend fun activeSessionId(): String? = store.activeSession()
     suspend fun setActiveSession(id: String?) = store.setActiveSession(id)
 

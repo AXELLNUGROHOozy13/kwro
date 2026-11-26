@@ -24,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Text
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.Font
 import com.kawrexam.student.R
 
 /*
@@ -70,17 +72,30 @@ private val LightColors = lightColorScheme(
 )
 
 private val base = Typography()
-private val Sans = FontFamily.SansSerif
+/** DM Sans: geometric and friendly, but still very legible at body sizes. Bundled in res/font (SIL OFL, see docs/DMSans-OFL.txt). */
+val Sans = FontFamily(
+    Font(R.font.dmsans_regular, FontWeight.Normal),
+    Font(R.font.dmsans_medium, FontWeight.Medium),
+    Font(R.font.dmsans_semibold, FontWeight.SemiBold),
+    Font(R.font.dmsans_bold, FontWeight.Bold),
+    Font(R.font.dmsans_extrabold, FontWeight.ExtraBold),
+)
 private val AppTypography = Typography(
+    displayLarge = base.displayLarge.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
     displayMedium = base.displayMedium.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
+    displaySmall = base.displaySmall.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
     headlineLarge = base.headlineLarge.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
     headlineMedium = base.headlineMedium.copy(fontFamily = Sans, fontWeight = FontWeight.ExtraBold),
     headlineSmall = base.headlineSmall.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
     titleLarge = base.titleLarge.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
     titleMedium = base.titleMedium.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
+    titleSmall = base.titleSmall.copy(fontFamily = Sans, fontWeight = FontWeight.SemiBold),
     bodyLarge = base.bodyLarge.copy(fontFamily = Sans, fontSize = 17.sp, lineHeight = 26.sp), // exam questions: easy to read for long
     bodyMedium = base.bodyMedium.copy(fontFamily = Sans),
+    bodySmall = base.bodySmall.copy(fontFamily = Sans),
     labelLarge = base.labelLarge.copy(fontFamily = Sans, fontWeight = FontWeight.Bold),
+    labelMedium = base.labelMedium.copy(fontFamily = Sans, fontWeight = FontWeight.SemiBold),
+    labelSmall = base.labelSmall.copy(fontFamily = Sans),
 )
 
 private val AppShapes = Shapes(
@@ -89,7 +104,10 @@ private val AppShapes = Shapes(
 
 @Composable
 fun KawrexamTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = LightColors, typography = AppTypography, shapes = AppShapes, content = content)
+    MaterialTheme(colorScheme = LightColors, typography = AppTypography, shapes = AppShapes) {
+        // No Surface sits above our screens, so without this every plain Text would fall back to the system font.
+        ProvideTextStyle(AppTypography.bodyMedium, content)
+    }
 }
 
 /** Sky-blue haze at the top fading into lavender, with a violet glow at the bottom corner. */
@@ -160,36 +178,40 @@ fun BrandBlock() {
     }
 }
 
-/** Deep-indigo gradient pill: the primary call to action. */
+/** Deep-indigo gradient pill: the primary call to action. Optional drawn icons before and after the label. */
 @Composable
-fun GradientButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun GradientButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, leading: Ic? = null, trailing: Ic? = null) {
     val shape = RoundedCornerShape(50)
     val bg = if (enabled) Brush.horizontalGradient(listOf(Color(0xFF6A4BE6), Color(0xFF3B22A8))) else Brush.horizontalGradient(listOf(Color(0xFFC9C4E6), Color(0xFFC9C4E6)))
-    Box(
+    Row(
         modifier.defaultMinSize(minHeight = 48.dp)
             .shadow(if (enabled) 10.dp else 0.dp, shape, ambientColor = Color(0x663B22A8), spotColor = Color(0x663B22A8))
             .clip(shape).background(bg).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 22.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(text, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1) }
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+    ) {
+        if (leading != null) Icon24(leading, Color.White, 16.dp, filled = true)
+        Text(text, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
+        if (trailing != null) Icon24(trailing, Color.White, 18.dp)
+    }
 }
 
 /** White frosted circle button for header actions. */
 @Composable
-fun GlassCircleButton(glyph: String, onClick: () -> Unit) {
+fun GlassCircleButton(icon: Ic, onClick: () -> Unit) {
     Box(
         Modifier.size(44.dp).shadow(6.dp, CircleShape, ambientColor = Color(0x226D4BE0), spotColor = Color(0x226D4BE0))
             .clip(CircleShape).background(Color.White.copy(alpha = 0.8f)).border(1.dp, Color.White, CircleShape).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(glyph, color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+    ) { Icon24(icon, Ink, 20.dp) }
 }
 
 /** Small stat tile: coloured icon square, label, big number. */
 @Composable
-fun StatCard(glyph: String, tint: Color, label: String, value: String, modifier: Modifier = Modifier) {
+fun StatCard(icon: Ic, tint: Color, label: String, value: String, modifier: Modifier = Modifier) {
     GlassCard(modifier) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(tint.copy(alpha = 0.75f), tint))), contentAlignment = Alignment.Center) {
-                Text(glyph, fontSize = 22.sp, color = Color.White)
+                Icon24(icon, Color.White, 24.dp, filled = true, onTint = tint)
             }
             Column {
                 Text(label, color = InkSoft, fontSize = 12.sp, maxLines = 1)
