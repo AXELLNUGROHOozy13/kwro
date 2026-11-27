@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import com.kawrexam.student.guard.DndManager
 import com.kawrexam.student.guard.ExamVpnService
 import com.kawrexam.student.guard.GRACE_MS
+import com.kawrexam.student.guard.WEB_FOCUS_GRACE_MS
 import com.kawrexam.student.ui.AppRoot
 import com.kawrexam.student.ui.KawrexamTheme
 
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
         val type = leftType ?: "LEFT_APP"
         leftAt = 0L; leftType = null
         // Short interruptions (notification pull, call banner) are ignored; real leaves are reported.
-        if (duration >= GRACE_MS) vm.onViolation(type, duration, started)
+        val grace = if (type == "FOCUS_LOST" && vm.webExam) WEB_FOCUS_GRACE_MS else GRACE_MS
+        if (duration >= grace) vm.onViolation(type, duration, started)
     }
 }

@@ -168,6 +168,7 @@ fun ChecklistScreen(vm: MainViewModel, exam: ExamItem, dnd: DndManager) {
     Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(exam.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Muted("Siapkan HP-mu sebelum mulai. Setelah ujian dimulai, pengaturan tidak bisa dibuka.")
+        if (exam.mode == "WEB") Muted("Ujian ini dikerjakan di situs ujian yang dibuka di dalam KawRexam. Hanya situs yang ditentukan guru yang bisa dibuka.")
         GlassCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusTitle(if (dndOk) 1 else 0, if (dndOk) "Akses Jangan Ganggu aktif" else "Akses Jangan Ganggu belum diberikan")

@@ -80,7 +80,7 @@ studentRouter.get(
       data: exams.map((e) => {
         const sess = e.sessions[0];
         return {
-          id: e.id, title: e.title, description: e.description, durationMinutes: e.durationMinutes,
+          id: e.id, title: e.title, description: e.description, mode: e.mode, durationMinutes: e.durationMinutes,
           startsAt: e.startsAt?.toISOString() ?? null, endsAt: e.endsAt?.toISOString() ?? null, status: e.status,
           sessionId: sess?.id ?? null, sessionStatus: sess?.status ?? null, suspended: sess?.suspendReason === 'PIN_EXITED',
           ...availability(e, sess?.status, now, sess?.suspendReason),
@@ -145,6 +145,8 @@ export async function finalize(sessionId: string, to: 'SUBMITTED' | 'FORCE_SUBMI
     include: { exam: { include: { questions: { include: { options: true } } } } },
   });
   const exam = session.exam;
+  // Web exams are marked on the external site: the session just ends, with no score to compute.
+  if (exam.mode === 'WEB') return;
   const g = gradeAnswers(
     exam.questions.map((q) => ({ id: q.id, type: q.type, weight: q.weight, acceptedAnswers: q.acceptedAnswers, options: q.options.map((o) => ({ id: o.id, isCorrect: o.isCorrect })) })),
     await latestAnswers(sessionId),
@@ -218,7 +220,8 @@ async function payload(sessionId: string) {
   });
   const answers = [...(await latestAnswers(sessionId)).entries()].map(([questionId, a]) => ({ questionId, optionIds: a.optionIds ?? null, text: a.text ?? null }));
   return {
-    sessionId: s.id, examId: s.examId, title: s.exam.title, status: s.status,
+    sessionId: s.id, examId: s.examId, title: s.exam.title, status: s.status, mode: s.exam.mode,
+    ...(s.exam.mode === 'WEB' ? { webUrl: s.exam.webUrl, webAllowedHosts: s.exam.webAllowedHosts, webLockClipboard: s.exam.webLockClipboard } : {}),
     deadlineAt: s.deadlineAt!.toISOString(), serverTime: new Date().toISOString(), offlineMode: s.exam.offlineMode,
     warningCount: s.warningCount, penaltyUntil: s.penaltyUntil && s.penaltyUntil > new Date() ? s.penaltyUntil.toISOString() : null,
     questions, answers,
@@ -404,19 +407,23 @@ studentRouter.post(
       const timeUp = !!session.deadlineAt && Date.now() >= session.deadlineAt.getTime();
       if (!timeUp) {
         const { pin } = z.object({ pin: z.string().max(20).nullish() }).parse(req.body ?? {});
-        const total = await prisma.question.count({ where: { examId: session.examId } });
-        const latest = await latestAnswers(session.id);
-        const done = [...latest.values()].filter(isAnswered).length;
-        if (done < total) throw badRequest('UNANSWERED', `Masih ada ${total - done} soal belum dijawab.`);
+        if (session.exam.mode !== 'WEB') {
+          const total = await prisma.question.count({ where: { examId: session.examId } });
+          const latest = await latestAnswers(session.id);
+          const done = [...latest.values()].filter(isAnswered).length;
+          if (done < total) throw badRequest('UNANSWERED', `Masih ada ${total - done} soal belum dijawab.`);
+        }
         checkPin(session.id, session.exam.supervisorPin, pin);
       }
       await finalize(session.id, 'SUBMITTED');
     }
     const fresh = await prisma.examSession.findUniqueOrThrow({ where: { id: session.id }, include: { result: true, exam: true } });
-    if (!DONE.includes(fresh.status) || !fresh.result) {
+    if (!DONE.includes(fresh.status) || (fresh.exam.mode !== 'WEB' && !fresh.result)) {
       throw new AppError(409, 'NOT_SUBMITTED', 'Ujian belum selesai (dihentikan pengawas).');
     }
-    const { result, exam } = fresh;
+    if (fresh.exam.mode === 'WEB' || !fresh.result) return res.json({ visible: false, message: 'Ujian selesai. Hasil akan diumumkan oleh guru atau pengawas.' });
+    const result = fresh.result; // non-null here: the guard above returned for WEB exams and for a missing result
+    const exam = fresh.exam;
     const v = exam.resultVisibility;
     if (v === 'HIDDEN') return res.json({ visible: false, message: 'Jawabanmu sudah terkirim. Hasil akan diumumkan oleh pengawas.' });
     res.json({

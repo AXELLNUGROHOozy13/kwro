@@ -99,6 +99,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun requestVpn() { vpnRequest++ }
 
     val inExam: Boolean get() = screen is Screen.InExam
+    /** The open exam is an external site shown in the locked exam browser. */
+    val webExam: Boolean get() = session?.mode == "WEB"
 
     // Server time = anchor + elapsedRealtime, so changing the phone's clock cannot extend the exam.
     private var anchorServer = System.currentTimeMillis()

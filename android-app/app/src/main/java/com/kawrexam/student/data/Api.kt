@@ -30,6 +30,8 @@ data class ExamItem(
     val startsAt: String? = null, val endsAt: String? = null, val status: String,
     val sessionId: String? = null, val sessionStatus: String? = null,
     val canStart: Boolean = false, val reason: String? = null, val suspended: Boolean = false,
+    /** NATIVE = questions in KawRexam, WEB = external site in the locked exam browser. */
+    val mode: String = "NATIVE",
 )
 @Serializable data class ExamListResp(val data: List<ExamItem>, val serverTime: String)
 
@@ -42,7 +44,8 @@ data class SessionDto(
     val sessionId: String, val examId: String, val title: String, val status: String,
     val deadlineAt: String, val serverTime: String, val offlineMode: Boolean = false,
     val warningCount: Int = 0, val penaltyUntil: String? = null,
-    val questions: List<QuestionDto>, val answers: List<AnswerDto> = emptyList(),
+    val questions: List<QuestionDto> = emptyList(), val answers: List<AnswerDto> = emptyList(),
+    val mode: String = "NATIVE", val webUrl: String? = null, val webAllowedHosts: List<String> = emptyList(), val webLockClipboard: Boolean = true,
 )
 
 @Serializable data class AnswerEvent(val clientEventId: String, val questionId: String, val optionIds: List<String>? = null, val text: String? = null, val answeredAt: String)

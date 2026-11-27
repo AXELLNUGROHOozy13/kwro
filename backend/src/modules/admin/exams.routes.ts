@@ -17,6 +17,10 @@ export const examsRouter = Router();
 // ───────── Exam settings ─────────
 const isoDate = z.string().datetime({ offset: true }).nullable().optional();
 
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+/** "https://Accounts.Google.com/path" and "*.google.com" both become a bare lowercase host. */
+const normHost = (s: string) => s.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^\*\./, '').replace(/[/:?#].*$/, '');
+
 const examFields = z.object({
   title: z.string().trim().min(3, 'Judul minimal 3 karakter.').max(150),
   description: z.string().trim().max(2000).nullable().optional(),
@@ -31,6 +35,16 @@ const examFields = z.object({
   scoreAdjustmentFactor: z.number().min(0.1).max(3).optional(),
   scoreMin: z.number().min(0).max(100).optional(),
   scoreMax: z.number().min(0).max(100).optional(),
+  // Exam browser (mode WEB)
+  mode: z.enum(['NATIVE', 'WEB']).optional(),
+  webUrl: z.string().trim().max(2000).url('Alamat situs tidak valid.').refine((u) => u.toLowerCase().startsWith('https://'), 'Alamat harus diawali https://').nullable().optional(),
+  webAllowedHosts: z
+    .array(z.string().trim().max(253))
+    .max(30, 'Maksimal 30 situs tambahan.')
+    .transform((a) => [...new Set(a.map(normHost).filter(Boolean))])
+    .refine((a) => a.every((h) => HOST_RE.test(h)), 'Ada nama situs yang tidak valid. Tulis seperti: accounts.google.com')
+    .optional(),
+  webLockClipboard: z.boolean().optional(),
 });
 
 function checkRanges(v: { startsAt?: string | null; endsAt?: string | null; scoreMin?: number; scoreMax?: number }) {
@@ -42,6 +56,10 @@ function checkRanges(v: { startsAt?: string | null; endsAt?: string | null; scor
   }
 }
 
+function checkWeb(mode: string | undefined, webUrl: string | null | undefined) {
+  if (mode === 'WEB' && !webUrl) throw badRequest('NO_WEB_URL', 'Isi alamat situs ujian (https://...).');
+}
+
 const toDate = (v: string | null | undefined) => (v === undefined ? undefined : v === null ? null : new Date(v));
 
 examsRouter.get(
@@ -51,7 +69,7 @@ examsRouter.get(
       where: { adminId: adminId(req) },
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true, title: true, status: true, durationMinutes: true, startsAt: true, endsAt: true, createdAt: true,
+        id: true, title: true, status: true, mode: true, durationMinutes: true, startsAt: true, endsAt: true, createdAt: true,
         _count: { select: { questions: true, assignments: true, sessions: true } },
       },
     });
@@ -64,6 +82,7 @@ examsRouter.post(
   ah(async (req, res) => {
     const input = examFields.parse(req.body);
     checkRanges(input);
+    checkWeb(input.mode, input.webUrl);
     const exam = await prisma.exam.create({
       data: { ...input, supervisorPin: newPin(), examToken: newToken(), adminId: adminId(req), startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt) },
     });
@@ -93,7 +112,7 @@ examsRouter.get(
 );
 
 // Fields that change what a student experiences are locked once anyone has started.
-const LOCKED_AFTER_START = ['durationMinutes', 'shuffleQuestions', 'shuffleOptions', 'offlineMode'] as const;
+const LOCKED_AFTER_START = ['durationMinutes', 'shuffleQuestions', 'shuffleOptions', 'offlineMode', 'mode'] as const;
 
 examsRouter.patch(
   '/:id',
@@ -111,6 +130,7 @@ examsRouter.patch(
         }
       }
     }
+    checkWeb(input.mode ?? exam.mode, input.webUrl === undefined ? exam.webUrl : input.webUrl);
     checkRanges({
       startsAt: input.startsAt === undefined ? exam.startsAt?.toISOString() : input.startsAt,
       endsAt: input.endsAt === undefined ? exam.endsAt?.toISOString() : input.endsAt,
@@ -164,7 +184,9 @@ examsRouter.post(
         prisma.question.count({ where: { examId: id } }),
         prisma.examAssignment.count({ where: { examId: id } }),
       ]);
-      if (questions === 0) throw badRequest('NO_QUESTIONS', 'Tambahkan minimal satu soal sebelum ujian dipublikasikan.');
+      if (exam.mode === 'WEB') {
+        if (!exam.webUrl) throw badRequest('NO_WEB_URL', 'Isi alamat situs ujian sebelum ujian dipublikasikan.');
+      } else if (questions === 0) throw badRequest('NO_QUESTIONS', 'Tambahkan minimal satu soal sebelum ujian dipublikasikan.');
       if (classes === 0) throw badRequest('NO_CLASSES', 'Pilih minimal satu kelas peserta sebelum ujian dipublikasikan.');
     }
     if (status === 'SCHEDULED' && !exam.startsAt) {

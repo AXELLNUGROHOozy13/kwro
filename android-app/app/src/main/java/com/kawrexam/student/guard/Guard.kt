@@ -18,6 +18,12 @@ import android.provider.Settings
 const val GRACE_MS = 3000
 
 /**
+ * Web exams: a <select> or date picker inside the page opens a system dialog that takes window focus without leaving the app.
+ * A focus loss alone therefore needs to last longer before it counts. Really leaving the app (onPause) still uses GRACE_MS.
+ */
+const val WEB_FOCUS_GRACE_MS = 8000
+
+/**
  * Do Not Disturb during exams. "Alarms only" silences notifications and calls but still lets
  * our own warning sound through. The student's previous setting is restored afterwards.
  */

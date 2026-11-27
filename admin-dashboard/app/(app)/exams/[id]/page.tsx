@@ -16,6 +16,7 @@ interface Exam {
   id: string; title: string; description: string | null; durationMinutes: number; startsAt: string | null; endsAt: string | null;
   kkm: number | null; shuffleQuestions: boolean; shuffleOptions: boolean; resultVisibility: string; offlineMode: boolean;
   scoreAdjustmentFactor: number; scoreMin: number; scoreMax: number; status: string; supervisorPin: string | null; examToken: string | null;
+  mode: string; webUrl: string | null; webAllowedHosts: string[]; webLockClipboard: boolean;
   questions: Question[]; assignments: { classId: string }[]; _count: { sessions: number };
 }
 interface ClassRow { id: string; name: string; _count: { students: number } }
@@ -23,7 +24,7 @@ interface Participant {
   studentId: string; name: string; className: string | null; status: string; suspended?: boolean; warningCount: number;
   finishedAt: string | null; finalScore: number | null; passed: boolean | null;
 }
-type Tab = 'questions' | 'settings' | 'classes' | 'results';
+type Tab = 'questions' | 'web' | 'settings' | 'classes' | 'results';
 
 export default function ExamDetail() {
   const { id } = useParams<{ id: string }>();
@@ -53,7 +54,9 @@ export default function ExamDetail() {
 
   const [badge, label] = EXAM_STATUS[exam.status] ?? ['badge-muted', exam.status];
   const locked = exam._count.sessions > 0;
-  const tabs: [Tab, string][] = [['questions', `Soal (${exam.questions.length})`], ['settings', 'Pengaturan'], ['classes', `Kelas (${exam.assignments.length})`], ['results', 'Peserta & hasil']];
+  const isWeb = exam.mode === 'WEB';
+  const current: Tab = isWeb && tab === 'questions' ? 'web' : tab;
+  const tabs: [Tab, string][] = [isWeb ? ['web', 'Situs ujian'] : ['questions', `Soal (${exam.questions.length})`], ['settings', 'Pengaturan'], ['classes', `Kelas (${exam.assignments.length})`], ['results', 'Peserta & hasil']];
 
   return (
     <div className="grid gap-5">
@@ -86,14 +89,62 @@ export default function ExamDetail() {
       {locked && <p className="alert alert-warn">Soal terkunci karena sudah ada siswa yang membuka ujian ini.</p>}
 
       <div className="tabs" role="tablist">
-        {tabs.map(([k, t]) => <button key={k} role="tab" className="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>)}
+        {tabs.map(([k, t]) => <button key={k} role="tab" className="tab" aria-selected={current === k} onClick={() => setTab(k)}>{t}</button>)}
       </div>
 
-      {tab === 'questions' && <QuestionsTab exam={exam} locked={locked} reload={load} onError={guard} />}
-      {tab === 'settings' && <SettingsTab exam={exam} reload={load} onSaved={() => setNotice('Pengaturan disimpan.')} onError={guard} />}
-      {tab === 'classes' && <ClassesTab exam={exam} reload={load} onError={guard} />}
-      {tab === 'results' && <ResultsTab exam={exam} onError={guard} />}
+      {current === 'web' && <WebTab exam={exam} reload={load} onSaved={() => setNotice('Pengaturan situs disimpan.')} onError={guard} />}
+      {current === 'questions' && <QuestionsTab exam={exam} locked={locked} reload={load} onError={guard} />}
+      {current === 'settings' && <SettingsTab exam={exam} reload={load} onSaved={() => setNotice('Pengaturan disimpan.')} onError={guard} />}
+      {current === 'classes' && <ClassesTab exam={exam} reload={load} onError={guard} />}
+      {current === 'results' && <ResultsTab exam={exam} onError={guard} />}
     </div>
+  );
+}
+
+// ───────── Exam browser (mode WEB) ─────────
+function WebTab({ exam, reload, onSaved, onError }: { exam: Exam; reload: () => void; onSaved: () => void; onError: (e: unknown) => void }) {
+  const [f, setF] = useState({ webUrl: exam.webUrl ?? '', hosts: exam.webAllowedHosts.join('\n'), webLockClipboard: exam.webLockClipboard });
+  const [busy, setBusy] = useState(false);
+  const ended = exam.status === 'ENDED';
+  let startHost = '';
+  try { startHost = new URL(f.webUrl).hostname; } catch { /* still typing */ }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api(`/exams/${exam.id}`, {
+        method: 'PATCH',
+        body: { webUrl: f.webUrl.trim(), webAllowedHosts: f.hosts.split(/[\n,]+/).map((h) => h.trim()).filter(Boolean), webLockClipboard: f.webLockClipboard },
+      });
+      onSaved();
+      reload();
+    } catch (err) { onError(err); }
+    setBusy(false);
+  }
+
+  return (
+    <form onSubmit={submit} className="glass p-5 grid gap-5 max-w-2xl">
+      <p className="muted text-sm">Ujian ini dikerjakan di situs lain, di dalam KawRexam yang terkunci (layar disematkan, aplikasi lain tanpa internet, tangkapan layar diblokir). KawRexam tidak menilai apa pun di mode ini: nilai diambil dari situs ujiannya.</p>
+      <fieldset disabled={ended} className="grid gap-5">
+        <div>
+          <label className="label" htmlFor="wu">Alamat situs ujian</label>
+          <input id="wu" className="input" type="url" required placeholder="https://" pattern="https://.*" value={f.webUrl} onChange={(e) => setF({ ...f, webUrl: e.target.value })} />
+          <p className="muted text-sm mt-1">Harus diawali https://. {startHost && <>Situs <strong>{startHost}</strong> dan semua subdomainnya otomatis diizinkan.</>}</p>
+        </div>
+        <div>
+          <label className="label" htmlFor="wh">Situs tambahan yang diizinkan (satu per baris)</label>
+          <textarea id="wh" className="input" rows={4} placeholder={'cdn.contoh.sch.id\nlogin.contoh.sch.id'} value={f.hosts} onChange={(e) => setF({ ...f, hosts: e.target.value })} />
+          <p className="muted text-sm mt-1">Isi hanya bila halaman ujian berpindah ke domain lain, misalnya halaman login terpisah. Siswa tidak bisa membuka situs di luar daftar ini.</p>
+        </div>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={f.webLockClipboard} onChange={(e) => setF({ ...f, webLockClipboard: e.target.checked })} />
+          <span>Blokir salin, potong, tempel, dan pilih teks</span>
+        </label>
+        <p className="alert alert-warn">Catatan: login Google tidak berfungsi di dalam aplikasi, jadi Google Form yang mewajibkan login tidak bisa dipakai. Unggah berkas juga dimatikan.</p>
+        <div><button className="btn btn-primary" disabled={busy}>{busy ? 'Menyimpan…' : 'Simpan'}</button></div>
+      </fieldset>
+    </form>
   );
 }
 

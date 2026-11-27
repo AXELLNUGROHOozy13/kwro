@@ -65,6 +65,7 @@ private fun hintFor(type: String) = when (type) {
 @Composable
 fun ExamScreen(vm: MainViewModel) {
     val s = vm.session ?: return
+    if (s.mode == "WEB") { ExamBrowserScreen(vm); return } // external exam site in the locked browser
     val n = s.questions.size
     val q = s.questions.getOrNull(vm.index) ?: return
     val ctx = LocalContext.current
@@ -75,7 +76,6 @@ fun ExamScreen(vm: MainViewModel) {
     var sheet by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var finishPin by remember { mutableStateOf("") }
-    var unlockPin by remember { mutableStateOf("") }
 
     // The header is dark navy, so the status-bar icons must be light while the exam is open.
     val view = LocalView.current
@@ -168,42 +168,10 @@ fun ExamScreen(vm: MainViewModel) {
             )
         }
 
-        if (vm.penaltyLeftMs() > 0) {
-            Box(Modifier.fillMaxSize().background(Color(0xF2061C2A)).tapOnly { }.imePadding(), contentAlignment = Alignment.Center) {
-                Column(
-                    Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("Layar terkunci", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
-                    Text(mmss(vm.penaltyLeftMs()), color = Ex.Cyan, fontWeight = FontWeight.ExtraBold, fontSize = 52.sp)
-                    Text("Pelanggaran ke-${vm.warningCount}. Waktu ujian tetap berjalan.", color = Color.White, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Atau minta PIN ke pengawas untuk membuka kunci:", color = Ex.Muted, textAlign = TextAlign.Center)
-                    PinField(unlockPin, { unlockPin = it }, "PIN pengawas", dark = true)
-                    ExButton("Buka kunci", { vm.unlock(unlockPin); unlockPin = "" }, Modifier.fillMaxWidth(), BtnKind.Primary, enabled = unlockPin.isNotEmpty() && !vm.unlocking, size = 56)
-                }
-            }
-        }
-
-        if (vm.finishing) {
-            Box(Modifier.fillMaxSize().background(Color(0xB3061C2A)).tapOnly { }, contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Ex.Cyan)
-                    Spacer(Modifier.height(12.dp))
-                    Text("Mengirim jawaban…", color = Color.White, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
+        ExamOverlays(vm)
     }
 
-    vm.warning?.let { w ->
-        TrackedAlertDialog(vm, onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
-            confirmButton = { TextButton(onClick = { vm.warning = null }) { Text("Mengerti") } })
-    }
-    vm.error?.let { e ->
-        TrackedAlertDialog(vm, onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
-            confirmButton = { TextButton(onClick = { vm.error = null }) { Text("OK") } })
-    }
+    ExamDialogs(vm)
 }
 
 @Composable
@@ -226,5 +194,50 @@ private fun AnswerArea(vm: MainViewModel, q: QuestionDto) {
                 focusedTextColor = Ex.Ink, unfocusedTextColor = Ex.Ink, focusedLabelColor = Ex.CyanText, cursorColor = Ex.Cyan,
             ),
         )
+    }
+}
+
+/** Shared by the question screen and the exam browser: the penalty lock and the "sending" cover. Call inside a full-size Box. */
+@Composable
+internal fun ExamOverlays(vm: MainViewModel) {
+    var unlockPin by remember { mutableStateOf("") }
+    if (vm.penaltyLeftMs() > 0) {
+        // Fully opaque: nothing of the exam may show through while the screen is locked.
+        Box(Modifier.fillMaxSize().background(Ex.Navy).tapOnly { }.imePadding(), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Layar terkunci", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
+                Text(mmss(vm.penaltyLeftMs()), color = Ex.Cyan, fontWeight = FontWeight.ExtraBold, fontSize = 52.sp)
+                Text("Pelanggaran ke-${vm.warningCount}. Waktu ujian tetap berjalan.", color = Color.White, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(10.dp))
+                Text("Atau minta PIN ke pengawas untuk membuka kunci:", color = Ex.Muted, textAlign = TextAlign.Center)
+                PinField(unlockPin, { unlockPin = it }, "PIN pengawas", dark = true)
+                ExButton("Buka kunci", { vm.unlock(unlockPin); unlockPin = "" }, Modifier.fillMaxWidth(), BtnKind.Primary, enabled = unlockPin.isNotEmpty() && !vm.unlocking, size = 56)
+            }
+        }
+    }
+    if (vm.finishing) {
+        Box(Modifier.fillMaxSize().background(Color(0xB3061C2A)).tapOnly { }, contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Ex.Cyan)
+                Spacer(Modifier.height(12.dp))
+                Text("Mengirim jawaban…", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/** Violation warning and error dialogs. They take window focus, so they are registered as the app's own dialogs. */
+@Composable
+internal fun ExamDialogs(vm: MainViewModel) {
+    vm.warning?.let { w ->
+        TrackedAlertDialog(vm, onDismissRequest = { }, title = { Text("Peringatan") }, text = { Text(w) },
+            confirmButton = { TextButton(onClick = { vm.warning = null }) { Text("Mengerti") } })
+    }
+    vm.error?.let { e ->
+        TrackedAlertDialog(vm, onDismissRequest = { vm.error = null }, title = { Text("Gagal") }, text = { Text(e) },
+            confirmButton = { TextButton(onClick = { vm.error = null }) { Text("OK") } })
     }
 }

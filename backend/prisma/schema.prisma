@@ -202,6 +202,12 @@ model RefreshToken {
 }
 
 // ───────── Exams ─────────
+/// NATIVE: questions live in KawRexam. WEB: the exam is an external https site opened inside the locked KawRexam browser.
+enum ExamMode {
+  NATIVE
+  WEB
+}
+
 model Exam {
   id                    String           @id @default(uuid())
   adminId               String
@@ -220,6 +226,10 @@ model Exam {
   scoreMax              Float            @default(100)
   supervisorPin         String? // 6 digits, shown to the admin only; students type it to finish or unlock
   examToken             String? // 6 characters, shown to the admin only; students type it every time they start or continue the exam
+  mode                  ExamMode         @default(NATIVE)
+  webUrl                String? // WEB only: first page, https only
+  webAllowedHosts       String[] // WEB only: extra hosts (and their subdomains) the student may navigate to
+  webLockClipboard      Boolean          @default(true) // WEB only: block copy / cut / paste / text selection
   status                ExamStatus       @default(DRAFT)
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
